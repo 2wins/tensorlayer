@@ -17,10 +17,7 @@ __all__ = [
     'BatchNormLayer',
     'InstanceNormLayer',
     'LayerNormLayer',
-<<<<<<< HEAD
     'GroupNormLayer',
-=======
->>>>>>> 696532e262a95125865179126f819b4030446f83
     'SwitchNormLayer',
 ]
 
