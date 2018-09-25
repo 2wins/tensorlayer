@@ -1,12 +1,14 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
 import tensorflow as tf
 
 from tensorlayer.layers.core import Layer
-from tensorlayer.layers.core import InputLayer
 from tensorlayer.layers.core import TF_GRAPHKEYS_VARIABLES
 
-from tensorlayer import tl_logging as logging
+from tensorlayer.layers.inputs import InputLayer
+
+from tensorlayer import logging
 
 from tensorlayer.decorators import deprecated_alias
 
@@ -34,20 +36,22 @@ class TimeDistributedLayer(Layer):
 
     Examples
     --------
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> batch_size = 32
     >>> timestep = 20
     >>> input_dim = 100
     >>> x = tf.placeholder(dtype=tf.float32, shape=[batch_size, timestep, input_dim], name="encode_seqs")
-    >>> net = InputLayer(x, name='input')
-    >>> net = TimeDistributedLayer(net, layer_class=DenseLayer, args={'n_units':50, 'name':'dense'}, name='time_dense')
-    ... [TL] InputLayer  input: (32, 20, 100)
-    ... [TL] TimeDistributedLayer time_dense: layer_class:DenseLayer
+    >>> net = tl.layers.InputLayer(x, name='input')
+    [TL] InputLayer  input: (32, 20, 100)
+    >>> net = tl.layers.TimeDistributedLayer(net, layer_class=tl.layers.DenseLayer, args={'n_units':50, 'name':'dense'}, name='time_dense')
+    [TL] TimeDistributedLayer time_dense: layer_class:DenseLayer
     >>> print(net.outputs._shape)
-    ... (32, 20, 50)
+    (32, 20, 50)
     >>> net.print_params(False)
-    ... param   0: (100, 50)          time_dense/dense/W:0
-    ... param   1: (50,)              time_dense/dense/b:0
-    ... num of params: 5050
+    [TL] param   0: (100, 50)          time_dense/dense/W:0
+    [TL] param   1: (50,)              time_dense/dense/b:0
+    [TL]    num of params: 5050
 
     """
 
@@ -61,17 +65,16 @@ class TimeDistributedLayer(Layer):
             layer_args=None,
             name='time_distributed',
     ):
+
         super(TimeDistributedLayer, self).__init__(prev_layer=prev_layer, layer_args=layer_args, name=name)
-
-        logging.info(
-            "TimeDistributedLayer %s: layer_class:%s layer_args:%s" %
-            (self.name, layer_class.__name__, self.layer_args)
-        )
-
-        self.inputs = prev_layer.outputs
 
         if not isinstance(self.inputs, tf.Tensor):
             self.inputs = tf.transpose(tf.stack(self.inputs), [1, 0, 2])
+
+        logging.info(
+            "TimeDistributedLayer %s: layer_class: %s layer_args: %s" %
+            (self.name, layer_class.__name__, self.layer_args)
+        )
 
         input_shape = self.inputs.get_shape()
 
@@ -87,5 +90,5 @@ class TimeDistributedLayer(Layer):
 
         self.outputs = tf.stack(x, axis=1, name=name)
 
-        self.all_layers.append(self.outputs)
-        self.all_params.extend(variables)
+        self._add_layers(self.outputs)
+        self._add_params(variables)

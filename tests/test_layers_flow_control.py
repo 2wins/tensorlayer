@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorlayer as tl
 
+from tests.utils import CustomTestCase
 
-class Layer_Flow_Control_Test(unittest.TestCase):
+
+class Layer_Flow_Control_Test(CustomTestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -49,7 +55,7 @@ class Layer_Flow_Control_Test(unittest.TestCase):
         self.assertEqual(self.net_shape[-1], 10)
 
     def test_net_layers(self):
-        self.assertEqual(len(self.net_layers), 13)
+        self.assertEqual(len(self.net_layers), 14)
 
     def test_net_params(self):
         self.assertEqual(len(self.net_params), 12)

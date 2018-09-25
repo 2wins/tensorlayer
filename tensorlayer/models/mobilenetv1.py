@@ -1,13 +1,12 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
-"""
-MobileNet for ImageNet.
-"""
+"""MobileNet for ImageNet."""
 
 import os
 
 import tensorflow as tf
 
-from tensorlayer import tl_logging as logging
+from tensorlayer import logging
 
 from tensorlayer.layers import Layer
 from tensorlayer.layers import BatchNormLayer
@@ -85,10 +84,12 @@ class MobileNetV1(Layer):
     def __init__(self, x, end_with='out', is_train=False, reuse=None):
 
         self.net = self.mobilenetv1(x, end_with, is_train, reuse)
+
         self.outputs = self.net.outputs
-        self.all_params = self.net.all_params
-        self.all_layers = self.net.all_layers
-        self.all_drop = self.net.all_drop
+
+        self.all_params = list(self.net.all_params)
+        self.all_layers = list(self.net.all_layers)
+        self.all_drop = dict(self.net.all_drop)
         self.print_layers = self.net.print_layers
         self.print_params = self.net.print_params
 
@@ -97,47 +98,64 @@ class MobileNetV1(Layer):
         with tf.variable_scope("mobilenetv1", reuse=reuse):
             n = InputLayer(x)
             n = self.conv_block(n, 32, strides=(2, 2), is_train=is_train, name="conv")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 64, is_train=is_train, name="depth1")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
 
             n = self.depthwise_conv_block(n, 128, strides=(2, 2), is_train=is_train, name="depth2")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 128, is_train=is_train, name="depth3")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
 
             n = self.depthwise_conv_block(n, 256, strides=(2, 2), is_train=is_train, name="depth4")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 256, is_train=is_train, name="depth5")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
 
             n = self.depthwise_conv_block(n, 512, strides=(2, 2), is_train=is_train, name="depth6")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 512, is_train=is_train, name="depth7")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 512, is_train=is_train, name="depth8")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 512, is_train=is_train, name="depth9")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 512, is_train=is_train, name="depth10")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 512, is_train=is_train, name="depth11")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
 
             n = self.depthwise_conv_block(n, 1024, strides=(2, 2), is_train=is_train, name="depth12")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = self.depthwise_conv_block(n, 1024, is_train=is_train, name="depth13")
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
 
             n = GlobalMeanPool2d(n, name='globalmeanpool')
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             # n = DropoutLayer(n, 1-1e-3, True, is_train, name='drop')
             # n = DenseLayer(n, 1000, name='output')   # equal
             n = ReshapeLayer(n, [-1, 1, 1, 1024], name='reshape')
-            if end_with in n.outputs.name: return n
+            if end_with in n.outputs.name:
+                return n
             n = Conv2d(n, 1000, (1, 1), (1, 1), name='out')
             n = FlattenLayer(n, name='flatten')
-            if end_with == 'out': return n
+            if end_with == 'out':
+                return n
 
             raise Exception("end_with : conv, depth1, depth2 ... depth13, globalmeanpool, out")
 
@@ -146,16 +164,16 @@ class MobileNetV1(Layer):
         # ref: https://github.com/keras-team/keras/blob/master/keras/applications/mobilenet.py
         with tf.variable_scope(name):
             n = Conv2d(n, n_filter, filter_size, strides, b_init=None, name='conv')
-            n = BatchNormLayer(n, act=tf.nn.relu6, is_train=is_train, name='batchnorm')
+            n = BatchNormLayer(n, decay=0.99, act=tf.nn.relu6, is_train=is_train, name='batchnorm')
         return n
 
     @classmethod
     def depthwise_conv_block(cls, n, n_filter, strides=(1, 1), is_train=False, name="depth_block"):
         with tf.variable_scope(name):
             n = DepthwiseConv2d(n, (3, 3), strides, b_init=None, name='depthwise')
-            n = BatchNormLayer(n, act=tf.nn.relu6, is_train=is_train, name='batchnorm1')
+            n = BatchNormLayer(n, decay=0.99, act=tf.nn.relu6, is_train=is_train, name='batchnorm1')
             n = Conv2d(n, n_filter, (1, 1), (1, 1), b_init=None, name='conv')
-            n = BatchNormLayer(n, act=tf.nn.relu6, is_train=is_train, name='batchnorm2')
+            n = BatchNormLayer(n, decay=0.99, act=tf.nn.relu6, is_train=is_train, name='batchnorm2')
         return n
 
     def restore_params(self, sess, path='models'):

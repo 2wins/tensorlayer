@@ -1,13 +1,17 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
 import unittest
 
-try:
-    from tests.unittests_helper import CustomTestCase
-except ImportError:
-    from unittests_helper import CustomTestCase
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+import numpy as np
 
 import tensorflow as tf
 import tensorlayer as tl
-import numpy as np
+
+from tests.utils import CustomTestCase
 
 
 class Util_Predict_Test(CustomTestCase):

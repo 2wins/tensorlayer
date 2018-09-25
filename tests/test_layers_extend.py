@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorlayer as tl
 
+from tests.utils import CustomTestCase
 
-class Layer_Extend_Test(unittest.TestCase):
+
+class Layer_Extend_Test(CustomTestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -41,7 +47,7 @@ class Layer_Extend_Test(unittest.TestCase):
         self.assertEqual(self.shape_2[-1], 3)
 
     def test_layers(self):
-        self.assertEqual(len(self.layers), 4)
+        self.assertEqual(len(self.layers), 5)
 
     def test_params(self):
         self.assertEqual(len(self.params), 4)

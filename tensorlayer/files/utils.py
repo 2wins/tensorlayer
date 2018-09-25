@@ -1,8 +1,9 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
 import os
+# import ast
 import sys
-
 import gzip
 import math
 import pickle
@@ -13,7 +14,7 @@ import shutil
 import tarfile
 import time
 import zipfile
-
+import importlib
 from tqdm import tqdm
 
 from six.moves import cPickle
@@ -27,6 +28,12 @@ if sys.version_info[0] == 2:
 else:
     from urllib.request import urlretrieve
 
+# Fix error on OSX, as suggested by: https://stackoverflow.com/a/48374671
+# See: https://docs.python.org/3/library/sys.html#sys.platform
+if sys.platform.startswith('darwin'):
+    import matplotlib
+    matplotlib.use('TkAgg')
+
 import matplotlib.pyplot as plt
 
 import scipy.io as sio
@@ -35,8 +42,8 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.platform import gfile
 
-from tensorlayer import tl_logging as logging
-
+import tensorlayer as tl
+from tensorlayer import logging
 from tensorlayer import nlp
 from tensorlayer import utils
 from tensorlayer import visualize
@@ -65,10 +72,14 @@ __all__ = [
     'save_ckpt',
     'save_npz',
     'save_npz_dict',
+    #'save_graph',
+    #'load_graph',
+    #'save_graph_and_params',
+    #'load_graph_and_params',
 ]
 
 
-## Load dataset functions
+# Load dataset functions
 def load_mnist_dataset(shape=(-1, 784), path='data'):
     """Load the original mnist.
 
@@ -219,7 +230,7 @@ def load_cifar10_dataset(shape=(-1, 32, 32, 3), path='data', plotable=False):
     path = os.path.join(path, 'cifar10')
     logging.info("Load or Download cifar10 > {}".format(path))
 
-    #Helper function to unpickle the data
+    # Helper function to unpickle the data
     def unpickle(file):
         fp = open(file, 'rb')
         if sys.version_info.major == 2:
@@ -231,10 +242,10 @@ def load_cifar10_dataset(shape=(-1, 32, 32, 3), path='data', plotable=False):
 
     filename = 'cifar-10-python.tar.gz'
     url = 'https://www.cs.toronto.edu/~kriz/'
-    #Download and uncompress file
+    # Download and uncompress file
     maybe_download_and_extract(filename, path, url, extract=True)
 
-    #Unpickle file and fill in data
+    # Unpickle file and fill in data
     X_train = None
     y_train = []
     for i in range(1, 6):
@@ -326,7 +337,6 @@ def load_cropped_svhn(path='data', include_extra=True):
     >>> tl.vis.save_images(X_train[0:100], [10, 10], 'svhn.png')
 
     """
-
     start_time = time.time()
 
     path = os.path.join(path, 'cropped_svhn')
@@ -395,7 +405,7 @@ def load_cropped_svhn(path='data', include_extra=True):
         logging.info("  added n_extra {} to n_train {} took {}s".format(len(y_extra), len(y_train), time.time() - t))
     else:
         logging.info("  no extra images are included")
-    logging.info("  image size:%s n_train:%d n_test:%d" % (str(X_train.shape[1:4]), len(y_train), len(y_test)))
+    logging.info("  image size: %s n_train: %d n_test: %d" % (str(X_train.shape[1:4]), len(y_train), len(y_test)))
     logging.info("  took: {}s".format(int(time.time() - start_time)))
     return X_train, y_train, X_test, y_test
 
@@ -438,7 +448,7 @@ def load_ptb_dataset(path='data'):
     path = os.path.join(path, 'ptb')
     logging.info("Load or Download Penn TreeBank (PTB) dataset > {}".format(path))
 
-    #Maybe dowload and uncompress tar, or load exsisting files
+    # Maybe dowload and uncompress tar, or load exsisting files
     filename = 'simple-examples.tgz'
     url = 'http://www.fit.vutbr.cz/~imikolov/rnnlm/'
     maybe_download_and_extract(filename, path, url, extract=True)
@@ -531,9 +541,9 @@ def load_imdb_dataset(
     >>> X_train, y_train, X_test, y_test = tl.files.load_imdb_dataset(
     ...                                 nb_words=20000, test_split=0.2)
     >>> print('X_train.shape', X_train.shape)
-    ... (20000,)  [[1, 62, 74, ... 1033, 507, 27],[1, 60, 33, ... 13, 1053, 7]..]
+    (20000,)  [[1, 62, 74, ... 1033, 507, 27],[1, 60, 33, ... 13, 1053, 7]..]
     >>> print('y_train.shape', y_train.shape)
-    ... (20000,)  [1 0 0 ..., 1 0 1]
+    (20000,)  [1 0 0 ..., 1 0 1]
 
     References
     -----------
@@ -808,7 +818,6 @@ def load_flickr1M_dataset(tag='sky', size=10, path="data", n_threads=50, printab
     >>> images = tl.files.load_flickr1M_dataset(tag='zebra')
 
     """
-
     path = os.path.join(path, 'flickr1M')
     logging.info("[Flickr1M] using {}% of images = {}".format(size * 10, size * 100000))
     images_zip = [
@@ -1045,24 +1054,24 @@ def load_voc_dataset(path='data', dataset='2012', contain_classes_in_person=Fals
     >>>     n_objs_list, objs_info_list, objs_info_dicts = tl.files.load_voc_dataset(dataset="2012", contain_classes_in_person=False)
     >>> idx = 26
     >>> print(classes)
-    ... ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor']
+    ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'sofa', 'train', 'tvmonitor']
     >>> print(classes_dict)
-    ... {'sheep': 16, 'horse': 12, 'bicycle': 1, 'bottle': 4, 'cow': 9, 'sofa': 17, 'car': 6, 'dog': 11, 'cat': 7, 'person': 14, 'train': 18, 'diningtable': 10, 'aeroplane': 0, 'bus': 5, 'pottedplant': 15, 'tvmonitor': 19, 'chair': 8, 'bird': 2, 'boat': 3, 'motorbike': 13}
+    {'sheep': 16, 'horse': 12, 'bicycle': 1, 'bottle': 4, 'cow': 9, 'sofa': 17, 'car': 6, 'dog': 11, 'cat': 7, 'person': 14, 'train': 18, 'diningtable': 10, 'aeroplane': 0, 'bus': 5, 'pottedplant': 15, 'tvmonitor': 19, 'chair': 8, 'bird': 2, 'boat': 3, 'motorbike': 13}
     >>> print(imgs_file_list[idx])
-    ... data/VOC/VOC2012/JPEGImages/2007_000423.jpg
+    data/VOC/VOC2012/JPEGImages/2007_000423.jpg
     >>> print(n_objs_list[idx])
-    ... 2
+    2
     >>> print(imgs_ann_file_list[idx])
-    ... data/VOC/VOC2012/Annotations/2007_000423.xml
+    data/VOC/VOC2012/Annotations/2007_000423.xml
     >>> print(objs_info_list[idx])
-    ... 14 0.173 0.461333333333 0.142 0.496
-    ... 14 0.828 0.542666666667 0.188 0.594666666667
+    14 0.173 0.461333333333 0.142 0.496
+    14 0.828 0.542666666667 0.188 0.594666666667
     >>> ann = tl.prepro.parse_darknet_ann_str_to_list(objs_info_list[idx])
     >>> print(ann)
-    ... [[14, 0.173, 0.461333333333, 0.142, 0.496], [14, 0.828, 0.542666666667, 0.188, 0.594666666667]]
+    [[14, 0.173, 0.461333333333, 0.142, 0.496], [14, 0.828, 0.542666666667, 0.188, 0.594666666667]]
     >>> c, b = tl.prepro.parse_darknet_ann_list_to_cls_box(ann)
     >>> print(c, b)
-    ... [14, 14] [[0.173, 0.461333333333, 0.142, 0.496], [0.828, 0.542666666667, 0.188, 0.594666666667]]
+    [14, 14] [[0.173, 0.461333333333, 0.142, 0.496], [0.828, 0.542666666667, 0.188, 0.594666666667]]
 
     References
     -------------
@@ -1102,10 +1111,10 @@ def load_voc_dataset(path='data', dataset='2012', contain_classes_in_person=Fals
     if dataset == "2012":
         url = "http://host.robots.ox.ac.uk/pascal/VOC/voc2012/"
         tar_filename = "VOCtrainval_11-May-2012.tar"
-        extracted_filename = "VOC2012"  #"VOCdevkit/VOC2012"
+        extracted_filename = "VOC2012"  # "VOCdevkit/VOC2012"
         logging.info("    [============= VOC 2012 =============]")
     elif dataset == "2012test":
-        extracted_filename = "VOC2012test"  #"VOCdevkit/VOC2012"
+        extracted_filename = "VOC2012test"  # "VOCdevkit/VOC2012"
         logging.info("    [============= VOC 2012 Test Set =============]")
         logging.info(
             "    \nAuthor: 2012test only have person annotation, so 2007test is highly recommended for testing !\n"
@@ -1186,7 +1195,7 @@ def load_voc_dataset(path='data', dataset='2012', contain_classes_in_person=Fals
     imgs_file_list = [os.path.join(folder_imgs, s) for s in imgs_file_list]
     # logging.info('IM',imgs_file_list[0::3333], imgs_file_list[-1])
     if dataset != "2012test":
-        ##======== 2. semantic segmentation maps path list
+        # ======== 2. semantic segmentation maps path list
         # folder_semseg = path+"/"+extracted_filename+"/SegmentationClass/"
         folder_semseg = os.path.join(path, extracted_filename, "SegmentationClass")
         imgs_semseg_file_list = load_file_list(path=folder_semseg, regx='\\.png', printable=False)
@@ -1195,7 +1204,7 @@ def load_voc_dataset(path='data', dataset='2012', contain_classes_in_person=Fals
                                   )  # 2007_000032.png --> 2007000032
         imgs_semseg_file_list = [os.path.join(folder_semseg, s) for s in imgs_semseg_file_list]
         # logging.info('Semantic Seg IM',imgs_semseg_file_list[0::333], imgs_semseg_file_list[-1])
-        ##======== 3. instance segmentation maps path list
+        # ======== 3. instance segmentation maps path list
         # folder_insseg = path+"/"+extracted_filename+"/SegmentationObject/"
         folder_insseg = os.path.join(path, extracted_filename, "SegmentationObject")
         imgs_insseg_file_list = load_file_list(path=folder_insseg, regx='\\.png', printable=False)
@@ -1513,7 +1522,7 @@ def load_mpii_pose_dataset(path='data', is_16_pos_only=False):
     save_joints()
     # split_train_test()  #
 
-    ## read images dir
+    # read images dir
     logging.info("reading images list ...")
     img_dir = os.path.join(path, extracted_filename2)
     _img_list = load_file_list(path=os.path.join(path, extracted_filename2), regx='\\.jpg', printable=False)
@@ -1531,7 +1540,7 @@ def load_mpii_pose_dataset(path='data', is_16_pos_only=False):
             del img_train_list[i]
             del ann_train_list[i]
 
-    ## check annotation and images
+    # check annotation and images
     n_train_images = len(img_train_list)
     n_test_images = len(img_test_list)
     n_images = n_train_images + n_test_images
@@ -1588,6 +1597,7 @@ def save_npz(save_list=None, name='model.npz', sess=None):
     `Saving dictionary using numpy <http://stackoverflow.com/questions/22315595/saving-dictionary-of-header-information-using-numpy-savez>`__
 
     """
+    logging.info("[*] Saving TL params into %s" % name)
     if save_list is None:
         save_list = []
 
@@ -1604,7 +1614,7 @@ def save_npz(save_list=None, name='model.npz', sess=None):
     np.savez(name, params=save_list_var)
     save_list_var = None
     del save_list_var
-    logging.info("[*] %s saved" % name)
+    logging.info("[*] Saved")
 
 
 def load_npz(path='', name='model.npz'):
@@ -1631,7 +1641,7 @@ def load_npz(path='', name='model.npz'):
     - `Saving dictionary using numpy <http://stackoverflow.com/questions/22315595/saving-dictionary-of-header-information-using-numpy-savez>`__
 
     """
-    d = np.load(path + name)
+    d = np.load(os.path.join(path, name))
     return d['params']
 
 
@@ -1696,8 +1706,8 @@ def load_and_assign_npz(sess=None, name=None, network=None):
     if sess is None:
         raise ValueError("session is None.")
     if not os.path.exists(name):
-        logging.info("[!] Load {} failed!".format(name))
-        return False
+        logging.error("file {} doesn't exist.".format(name))
+        return
     else:
         params = load_npz(name=name)
         assign_params(sess, params, network)
@@ -1751,8 +1761,8 @@ def load_and_assign_npz_dict(name='model.npz', sess=None):
         raise ValueError("session is None.")
 
     if not os.path.exists(name):
-        logging.info("[!] Load {} failed!".format(name))
-        return False
+        logging.error("file {} doesn't exist.".format(name))
+        return
 
     params = np.load(name)
     if len(params.keys()) != len(set(params.keys())):
@@ -1841,19 +1851,19 @@ def load_ckpt(sess=None, mode_name='model.ckpt', save_dir='checkpoint', var_list
 
     Examples
     ----------
-    Save all global parameters.
+    - Save all global parameters.
 
     >>> tl.files.save_ckpt(sess=sess, mode_name='model.ckpt', save_dir='model', printable=True)
 
-    Save specific parameters.
+    - Save specific parameters.
 
     >>> tl.files.save_ckpt(sess=sess, mode_name='model.ckpt', var_list=net.all_params, save_dir='model', printable=True)
 
-    Load latest ckpt.
+    - Load latest ckpt.
 
     >>> tl.files.load_ckpt(sess=sess, var_list=net.all_params, save_dir='model', printable=True)
 
-    Load specific ckpt.
+    - Load specific ckpt.
 
     >>> tl.files.load_ckpt(sess=sess, mode_name='model.ckpt', var_list=net.all_params, save_dir='model', is_latest=False, printable=True)
 
@@ -1885,6 +1895,174 @@ def load_ckpt(sess=None, mode_name='model.ckpt', save_dir='checkpoint', var_list
         logging.info("[*] load ckpt fail ...")
 
 
+'''
+def save_graph(network=None, name='graph.pkl'):
+    """Save the architecture of TL model into a pickle file. No parameters be saved.
+
+    Parameters
+    -----------
+    network : TensorLayer layer
+        The network to save.
+    name : str
+        The name of graph file.
+
+    Examples
+    --------
+    Save the architecture
+    >>> tl.files.save_graph(net_test, 'graph.pkl')
+
+    Load the architecture in another script (no parameters restore)
+    >>> net = tl.files.load_graph('graph.pkl')
+    """
+    logging.info("[*] Saving TL graph into {}".format(name))
+    graphs = network.all_graphs
+    with open(name, 'wb') as file:
+        # pickle.dumps(graphs, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(graphs, file, protocol=pickle.HIGHEST_PROTOCOL)
+    logging.info("[*] Saved graph")
+
+
+def _graph2net(graphs):
+    """Inputs graphs, returns network."""
+    input_list = list()
+    layer_dict = dict()
+    # loop every layers
+    for graph in graphs:
+        # get current layer class
+        name, layer_kwargs = graph
+        layer_kwargs = dict(
+            layer_kwargs
+        )  # when InputLayer is used for twice, if we "pop" elements, the second time to use it will have error.
+
+        layer_class = layer_kwargs.pop('class')  # class of current layer
+        prev_layer = layer_kwargs.pop(
+            'prev_layer'
+        )  # name of previous layer : str =one layer   list of str = multiple layers
+
+        # convert function dictionary into real function
+        for key in layer_kwargs:  # set input placeholder into the lastest layer
+            fn_dict = layer_kwargs[key]
+            if key in ['act']:
+                module_path = fn_dict['module_path']
+                func_name = fn_dict['func_name']
+                lib = importlib.import_module(module_path)
+                fn = getattr(lib, func_name)
+                layer_kwargs[key] = fn
+                # print(key, layer_kwargs[key])
+        # print(name, prev_layer, layer_class, layer_kwargs)
+
+        if layer_class == 'placeholder':  # create placeholder
+            if name not in input_list:  # if placeholder is not exist
+                dtype = layer_kwargs.pop('dtype')
+                shape = layer_kwargs.pop('shape')
+                _placeholder = tf.placeholder(eval('tf.' + dtype), shape,
+                                              name=name.split(':')[0])  # globals()['tf.'+dtype]
+                # _placeholder = tf.placeholder(ast.literal_eval('tf.' + dtype), shape, name=name.split(':')[0])
+                # input_dict.update({name: _placeholder})
+                input_list.append((name, _placeholder))
+        else:  # create network
+            if isinstance(prev_layer, list):  # e.g. ConcatLayer, ElementwiseLayer have multiply previous layers
+                raise NotImplementedError("TL graph does not support this layer at the moment: %s" % (layer_class))
+            else:  # normal layers e.g. Conv2d
+                try:  # if previous layer is layer
+                    net = layer_dict[prev_layer]
+                    layer_kwargs.update({'prev_layer': net})
+                except Exception:  # if previous layer is input placeholder
+                    for n, t in input_list:
+                        if n == prev_layer:
+                            _placeholder = t
+                    layer_kwargs.update({'inputs': _placeholder})
+                layer_kwargs.update({'name': name})
+                net = eval('tl.layers.' + layer_class)(**layer_kwargs)
+                layer_dict.update({name: net})
+
+    # rename placeholder e.g. x:0 --> x
+    for i, (n, t) in enumerate(input_list):
+        n_new = n.replace(':', '')
+        if n_new[-1] == '0':
+            n_new = n_new[:-1]
+        input_list[i] = (n_new, t)
+        # print(n_new, t)
+
+    # put placeholder into network attributes
+    for n, t in input_list:
+        # print(name, n, t)
+        layer_dict[name].__dict__.update({n: t})
+        logging.info("[*] attributes: {} {} {}".format(n, t.get_shape().as_list(), t.dtype.name))
+    # for key in input_dict: # set input placeholder into the lastest layer
+    #     layer_dict[name].globals()[key] = input_dict[key]
+    #     logging.info("  attributes: {:3} {:15} {:15}".format(n, input_dict[key].get_shape().as_list(), input_dict[key].dtype.name))
+    logging.info("[*] Load graph finished")
+    # return the lastest layer as network
+    return layer_dict[name]
+
+
+def load_graph(name='model.pkl'):
+    """Restore TL model archtecture from a a pickle file. No parameters be restored.
+
+    Parameters
+    -----------
+    name : str
+        The name of graph file.
+
+    Returns
+    --------
+    network : TensorLayer layer
+        The input placeholder will become the attributes of the returned TL layer object.
+
+    Examples
+    --------
+    - see ``tl.files.save_graph``
+    """
+    logging.info("[*] Loading TL graph from {}".format(name))
+    with open(name, 'rb') as file:
+        graphs = pickle.load(file)
+    return _graph2net(graphs)
+
+
+def save_graph_and_params(network=None, name='model', sess=None):
+    """Save TL model architecture and parameters (i.e. whole model) into graph file and npz file, respectively.
+
+    Parameters
+    -----------
+    network : TensorLayer layer
+        The network to save.
+    name : str
+        The folder name to save the graph and parameters.
+    sess : Session
+        TensorFlow Session.
+
+    Examples
+    ---------
+    Save architecture and parameters
+
+    >>> tl.files.save_graph_and_params(net, 'model', sess)
+
+    Load archtecture and parameters
+
+    >>> net = tl.files.load_graph_and_params('model', sess)
+    """
+    exists_or_mkdir(name, False)
+    save_graph(network, os.path.join(name, 'graph.pkl'))
+    save_npz(save_list=network.all_params, name=os.path.join(name, 'params.npz'), sess=sess)
+
+
+def load_graph_and_params(name='model', sess=None):
+    """Load TL model architecture and parameters from graph file and npz file, respectively.
+
+    Parameters
+    -----------
+    name : str
+        The folder name to load the graph and parameters.
+    sess : Session
+        TensorFlow Session.
+    """
+    network = load_graph(name=os.path.join(name, 'graph.pkl'))
+    load_and_assign_npz(sess=sess, name=os.path.join(name, 'params.npz'), network=network)
+    return network
+'''
+
+
 def save_any_to_npy(save_dict=None, name='file.npy'):
     """Save variables to `.npy` file.
 
@@ -1900,7 +2078,7 @@ def save_any_to_npy(save_dict=None, name='file.npy'):
     >>> tl.files.save_any_to_npy(save_dict={'data': ['a','b']}, name='test.npy')
     >>> data = tl.files.load_npy_to_any(name='test.npy')
     >>> print(data)
-    ... {'data': ['a','b']}
+    {'data': ['a','b']}
 
     """
     if save_dict is None:
@@ -1963,7 +2141,7 @@ def read_file(filepath):
         return afile.read()
 
 
-def load_file_list(path=None, regx='\.npz', printable=True):
+def load_file_list(path=None, regx='\.jpg', printable=True, keep_prefix=False):
     r"""Return a file list in a folder by given a path and regular expression.
 
     Parameters
@@ -1974,6 +2152,8 @@ def load_file_list(path=None, regx='\.npz', printable=True):
         The regx of file name.
     printable : boolean
         Whether to print the files infomation.
+    keep_prefix : boolean
+        Whether to keep path in the file name.
 
     Examples
     ----------
@@ -1988,6 +2168,10 @@ def load_file_list(path=None, regx='\.npz', printable=True):
         if re.search(regx, f):
             return_list.append(f)
     # return_list.sort()
+    if keep_prefix:
+        for i, f in enumerate(return_list):
+            return_list[i] = os.path.join(path, f)
+
     if printable:
         logging.info('Match file list = %s' % return_list)
         logging.info('Number of files = %d' % len(return_list))
@@ -2096,9 +2280,10 @@ def maybe_download_and_extract(filename, working_directory, url_source, extract=
     filepath = os.path.join(working_directory, filename)
 
     if not os.path.exists(filepath):
+
         _download(filename, working_directory, url_source)
         statinfo = os.stat(filepath)
-        logging.info('Succesfully downloaded %s %s bytes.' % (filename, statinfo.st_size))  #, 'bytes.')
+        logging.info('Succesfully downloaded %s %s bytes.' % (filename, statinfo.st_size))  # , 'bytes.')
         if (not (expected_bytes is None) and (expected_bytes != statinfo.st_size)):
             raise Exception('Failed to verify ' + filename + '. Can you get to it with a browser?')
         if (extract):
@@ -2123,9 +2308,9 @@ def natural_keys(text):
     ----------
     >>> l = ['im1.jpg', 'im31.jpg', 'im11.jpg', 'im21.jpg', 'im03.jpg', 'im05.jpg']
     >>> l.sort(key=tl.files.natural_keys)
-    ... ['im1.jpg', 'im03.jpg', 'im05', 'im11.jpg', 'im21.jpg', 'im31.jpg']
+    ['im1.jpg', 'im03.jpg', 'im05', 'im11.jpg', 'im21.jpg', 'im31.jpg']
     >>> l.sort() # that is what we dont want
-    ... ['im03.jpg', 'im05', 'im1.jpg', 'im11.jpg', 'im21.jpg', 'im31.jpg']
+    ['im03.jpg', 'im05', 'im1.jpg', 'im11.jpg', 'im21.jpg', 'im31.jpg']
 
     References
     ----------

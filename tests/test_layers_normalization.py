@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorlayer as tl
+
+from tests.utils import CustomTestCase
 
 
 def model(x, is_train=True, reuse=False):
@@ -15,10 +21,14 @@ def model(x, is_train=True, reuse=False):
         n = tl.layers.LocalResponseNormLayer(n, name='norm_local')
         n = tl.layers.LayerNormLayer(n, reuse=reuse, name='norm_layer')
         n = tl.layers.InstanceNormLayer(n, name='norm_instance')
+        n = tl.layers.SwitchNormLayer(n, name='switchnorm')
+        n = tl.layers.QuanConv2dWithBN(n, n_filter=3, is_train=is_train, name='quan_cnn_with_bn')
+        n = tl.layers.FlattenLayer(n, name='flatten')
+        n = tl.layers.QuanDenseLayerWithBN(n, n_units=10, name='quan_dense_with_bn')
     return n
 
 
-class Layer_Normalization_Test(unittest.TestCase):
+class Layer_Normalization_Test(CustomTestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -42,19 +52,21 @@ class Layer_Normalization_Test(unittest.TestCase):
 
         cls.data["train_network"]["n_params"] = net_train.count_params()
 
+        print(net_train.count_params())
+
     @classmethod
     def tearDownClass(cls):
         tf.reset_default_graph()
 
     def test_all_layers(self):
-        self.assertEqual(len(self.data["train_network"]["layers"]), 6)
-        self.assertEqual(len(self.data["eval_network"]["layers"]), 6)
+        self.assertEqual(len(self.data["train_network"]["layers"]), 11)
+        self.assertEqual(len(self.data["eval_network"]["layers"]), 11)
 
     def test_all_params(self):
-        self.assertEqual(len(self.data["train_network"]["params"]), 12)
+        self.assertEqual(len(self.data["train_network"]["params"]), 26)
 
     def test_n_params(self):
-        self.assertEqual(self.data["train_network"]["n_params"], 60560)
+        self.assertEqual(self.data["train_network"]["n_params"], 362938)
 
 
 if __name__ == '__main__':

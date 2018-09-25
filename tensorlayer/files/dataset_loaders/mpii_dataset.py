@@ -1,6 +1,9 @@
+#! /usr/bin/python
+# -*- coding: utf-8 -*-
+
 import os
 
-from tensorlayer import tl_logging as logging
+from tensorlayer import logging
 
 from tensorlayer.files.utils import del_file
 from tensorlayer.files.utils import folder_exists

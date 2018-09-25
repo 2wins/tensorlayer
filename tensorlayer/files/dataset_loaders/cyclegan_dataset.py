@@ -1,8 +1,11 @@
+#! /usr/bin/python
+# -*- coding: utf-8 -*-
+
 import os
 
 import numpy as np
 
-from tensorlayer import tl_logging as logging
+from tensorlayer import logging
 from tensorlayer import visualize
 
 from tensorlayer.files.utils import del_file

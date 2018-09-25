@@ -1,3 +1,4 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
 import tensorflow as tf
@@ -5,13 +6,13 @@ import tensorflow as tf
 from tensorflow.python.ops import array_ops
 from tensorflow.python.util.tf_inspect import getfullargspec
 from tensorflow.contrib.rnn import stack_bidirectional_dynamic_rnn
+from tensorflow.python.ops.rnn_cell import LSTMStateTuple
 
 from tensorlayer.layers.core import Layer
 from tensorlayer.layers.core import LayersConfig
 from tensorlayer.layers.core import TF_GRAPHKEYS_VARIABLES
-from tensorlayer.layers.core import list_remove_repeat
 
-from tensorlayer import tl_logging as logging
+from tensorlayer import logging
 
 from tensorlayer.decorators import deprecated_alias
 
@@ -91,6 +92,8 @@ class RNNLayer(Layer):
 
     - For encoding see below.
 
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> batch_size = 32
     >>> num_steps = 5
     >>> vocab_size = 3000
@@ -158,8 +161,6 @@ class RNNLayer(Layer):
 
         super(RNNLayer, self).__init__(prev_layer=prev_layer, cell_init_args=cell_init_args, name=name)
 
-        self.inputs = prev_layer.outputs
-
         if 'GRU' in cell_fn.__name__:
             try:
                 self.cell_init_args.pop('state_is_tuple')
@@ -167,7 +168,7 @@ class RNNLayer(Layer):
                 logging.warning('pop state_is_tuple fails.')
 
         logging.info(
-            "RNNLayer %s: n_hidden:%d n_steps:%d in_dim:%d in_shape:%s cell_fn:%s " %
+            "RNNLayer %s: n_hidden: %d n_steps: %d in_dim: %d in_shape: %s cell_fn: %s " %
             (self.name, n_hidden, n_steps, self.inputs.get_shape().ndims, self.inputs.get_shape(), cell_fn.__name__)
         )
 
@@ -242,23 +243,19 @@ class RNNLayer(Layer):
                 if return_seq_2d:
                     # PTB tutorial: stack dense layer after that, or compute the cost from the output
                     # 2D Tensor [n_example, n_hidden]
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_hidden])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [-1, n_hidden])
+
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_hidden])
 
                 else:
                     # <akara>: stack more RNN layer after that
                     # 3D Tensor [n_example/n_steps, n_steps, n_hidden]
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_steps, n_hidden])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [-1, n_steps, n_hidden])
+
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_steps, n_hidden])
 
         self.final_state = state
 
-        self.all_layers.append(self.outputs)
-        self.all_params.extend(rnn_variables)
+        self._add_layers(self.outputs)
+        self._add_params(rnn_variables)
 
 
 class BiRNNLayer(Layer):
@@ -348,8 +345,6 @@ class BiRNNLayer(Layer):
     ):
         super(BiRNNLayer, self).__init__(prev_layer=prev_layer, cell_init_args=cell_init_args, name=name)
 
-        self.inputs = prev_layer.outputs
-
         if self.cell_init_args:
             self.cell_init_args['state_is_tuple'] = True  # 'use_peepholes': True,
 
@@ -363,7 +358,7 @@ class BiRNNLayer(Layer):
             raise Exception("Please put in cell_fn")
 
         logging.info(
-            "BiRNNLayer %s: n_hidden:%d n_steps:%d in_dim:%d in_shape:%s cell_fn:%s dropout:%s n_layer:%d " % (
+            "BiRNNLayer %s: n_hidden: %d n_steps: %d in_dim: %d in_shape: %s cell_fn: %s dropout: %s n_layer: %d " % (
                 self.name, n_hidden, n_steps, self.inputs.get_shape().ndims, self.inputs.get_shape(), cell_fn.__name__,
                 dropout, n_layer
             )
@@ -389,20 +384,23 @@ class BiRNNLayer(Layer):
             rnn_creator = lambda: cell_fn(num_units=n_hidden, **self.cell_init_args)
             # Apply dropout
             if dropout:
+
                 if isinstance(dropout, (tuple, list)):  # type(dropout) in [tuple, list]:
                     in_keep_prob = dropout[0]
                     out_keep_prob = dropout[1]
+
                 elif isinstance(dropout, float):
                     in_keep_prob, out_keep_prob = dropout, dropout
+
                 else:
                     raise Exception("Invalid dropout type (must be a 2-D tuple of " "float)")
-                try:  # TF 1.0
-                    DropoutWrapper_fn = tf.contrib.rnn.DropoutWrapper
-                except Exception:
-                    DropoutWrapper_fn = tf.nn.rnn_cell.DropoutWrapper
+
+                DropoutWrapper_fn = tf.contrib.rnn.DropoutWrapper
+
                 cell_creator = lambda is_last=True: DropoutWrapper_fn(
                     rnn_creator(), input_keep_prob=in_keep_prob, output_keep_prob=out_keep_prob if is_last else 1.0
                 )
+
             else:
                 cell_creator = rnn_creator
 
@@ -411,10 +409,8 @@ class BiRNNLayer(Layer):
 
             # Apply multiple layers
             if n_layer > 1:
-                try:  # TF1.0
-                    MultiRNNCell_fn = tf.contrib.rnn.MultiRNNCell
-                except Exception:
-                    MultiRNNCell_fn = tf.nn.rnn_cell.MultiRNNCell
+                MultiRNNCell_fn = tf.contrib.rnn.MultiRNNCell
+
                 if dropout:
                     try:
                         self.fw_cell = MultiRNNCell_fn(
@@ -449,15 +445,9 @@ class BiRNNLayer(Layer):
                 self.bw_initial_state = bw_initial_state
             # exit()
             # Feedforward to MultiRNNCell
-            try:  # TF1.0
-                list_rnn_inputs = tf.unstack(self.inputs, axis=1)
-            except Exception:  # TF0.12
-                list_rnn_inputs = tf.unpack(self.inputs, axis=1)
+            list_rnn_inputs = tf.unstack(self.inputs, axis=1)
 
-            try:  # TF1.0
-                bidirectional_rnn_fn = tf.contrib.rnn.static_bidirectional_rnn
-            except Exception:
-                bidirectional_rnn_fn = tf.nn.bidirectional_rnn
+            bidirectional_rnn_fn = tf.contrib.rnn.static_bidirectional_rnn
 
             outputs, fw_state, bw_state = bidirectional_rnn_fn(  # outputs, fw_state, bw_state = tf.contrib.rnn.static_bidirectional_rnn(
                 cell_fw=self.fw_cell,
@@ -474,18 +464,14 @@ class BiRNNLayer(Layer):
                 self.outputs = outputs
                 if return_seq_2d:
                     # 2D Tensor [n_example, n_hidden]
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_hidden * 2])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [-1, n_hidden * 2])
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_hidden * 2])
+
                 else:
                     # <akara>: stack more RNN layer after that
                     # 3D Tensor [n_example/n_steps, n_steps, n_hidden]
 
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_steps, n_hidden * 2])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [-1, n_steps, n_hidden * 2])
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_steps, n_hidden * 2])
+
             self.fw_final_state = fw_state
             self.bw_final_state = bw_state
 
@@ -494,8 +480,8 @@ class BiRNNLayer(Layer):
 
         logging.info("     n_params : %d" % (len(rnn_variables)))
 
-        self.all_layers.append(self.outputs)
-        self.all_params.extend(rnn_variables)
+        self._add_layers(self.outputs)
+        self._add_params(rnn_variables)
 
 
 class ConvRNNCell(object):
@@ -735,11 +721,9 @@ class ConvLSTMLayer(Layer):
     ):
         super(ConvLSTMLayer, self).__init__(prev_layer=prev_layer, name=name)
 
-        self.inputs = prev_layer.outputs
-
         logging.info(
-            "ConvLSTMLayer %s: feature_map:%d, n_steps:%d, "
-            "in_dim:%d %s, cell_fn:%s " %
+            "ConvLSTMLayer %s: feature_map: %d, n_steps: %d, "
+            "in_dim: %d %s, cell_fn: %s " %
             (self.name, feature_map, n_steps, self.inputs.get_shape().ndims, self.inputs.get_shape(), cell_fn.__name__)
         )
         # You can get the dimension by .get_shape() or ._shape, and check the
@@ -768,9 +752,14 @@ class ConvLSTMLayer(Layer):
         self.batch_size = batch_size
         outputs = []
         self.cell = cell = cell_fn(shape=cell_shape, filter_size=filter_size, num_features=feature_map)
+
         if initial_state is None:
-            self.initial_state = cell.zero_state(batch_size, dtype=LayersConfig.tf_dtype)  # dtype=tf.float32)  # 1.2.3
+            self.initial_state = cell.zero_state(batch_size, dtype=LayersConfig.tf_dtype)
+        else:
+            self.initial_state = initial_state
+
         state = self.initial_state
+
         # with tf.variable_scope("model", reuse=None, initializer=initializer):
         with tf.variable_scope(name, initializer=initializer) as vs:
             for time_step in range(n_steps):
@@ -801,8 +790,8 @@ class ConvLSTMLayer(Layer):
 
         self.final_state = state
 
-        self.all_layers.append(self.outputs)
-        self.all_params.extend(rnn_variables)
+        self._add_layers(self.outputs)
+        self._add_params(rnn_variables)
 
 
 # Advanced Ops for Dynamic RNN
@@ -819,6 +808,9 @@ def advanced_indexing_op(inputs, index):
 
     Examples
     ---------
+    >>> import numpy as np
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> batch_size, max_length, n_features = 3, 5, 2
     >>> z = np.random.uniform(low=-1, high=1, size=[batch_size, max_length, n_features]).astype(np.float32)
     >>> b_z = tf.constant(z)
@@ -833,11 +825,11 @@ def advanced_indexing_op(inputs, index):
     >>> y = sess.run([o], feed_dict={sl:order})
     >>> print("given",order)
     >>> print("out", y)
-    ... real [-0.93021595  0.53820813] [-0.92548317 -0.77135968] [ 0.89952248  0.19149846]
-    ... given [1 1 2]
-    ... out [array([[-0.93021595,  0.53820813],
-    ...             [-0.92548317, -0.77135968],
-    ...             [ 0.89952248,  0.19149846]], dtype=float32)]
+    real [-0.93021595  0.53820813] [-0.92548317 -0.77135968] [ 0.89952248  0.19149846]
+    given [1 1 2]
+    out [array([[-0.93021595,  0.53820813],
+                [-0.92548317, -0.77135968],
+                [ 0.89952248,  0.19149846]], dtype=float32)]
 
     References
     -----------
@@ -870,20 +862,20 @@ def retrieve_seq_length_op(data):
     ...         [[1],[2],[6],[1],[0]]]
     >>> data = np.asarray(data)
     >>> print(data.shape)
-    ... (3, 5, 1)
+    (3, 5, 1)
     >>> data = tf.constant(data)
     >>> sl = retrieve_seq_length_op(data)
     >>> sess = tf.InteractiveSession()
     >>> tl.layers.initialize_global_variables(sess)
     >>> y = sl.eval()
-    ... [2 3 4]
+    [2 3 4]
 
     Multiple features
     >>> data = [[[1,2],[2,2],[1,2],[1,2],[0,0]],
     ...         [[2,3],[2,4],[3,2],[0,0],[0,0]],
     ...         [[3,3],[2,2],[5,3],[1,2],[0,0]]]
     >>> print(sl)
-    ... [4 3 4]
+    [4 3 4]
 
     References
     ------------
@@ -891,14 +883,10 @@ def retrieve_seq_length_op(data):
 
     """
     with tf.name_scope('GetLength'):
-        # TF 1.0 change reduction_indices to axis
         used = tf.sign(tf.reduce_max(tf.abs(data), 2))
         length = tf.reduce_sum(used, 1)
-        # TF < 1.0
-        # used = tf.sign(tf.reduce_max(tf.abs(data), reduction_indices=2))
-        # length = tf.reduce_sum(used, reduction_indices=1)
-        length = tf.cast(length, tf.int32)
-    return length
+
+        return tf.cast(length, tf.int32)
 
 
 def retrieve_seq_length_op2(data):
@@ -919,16 +907,14 @@ def retrieve_seq_length_op2(data):
     >>> sess = tf.InteractiveSession()
     >>> tl.layers.initialize_global_variables(sess)
     >>> print(o.eval())
-    ... [2 3 4]
+    [2 3 4]
 
     """
     return tf.reduce_sum(tf.cast(tf.greater(data, tf.zeros_like(data)), tf.int32), 1)
 
 
 def retrieve_seq_length_op3(data, pad_val=0):  # HangSheng: return tensor for sequence length, if input is tf.string
-    """Return tensor for sequence length, if input is ``tf.string``.
-
-    """
+    """Return tensor for sequence length, if input is ``tf.string``."""
     data_shape_size = data.get_shape().ndims
     if data_shape_size == 3:
         return tf.reduce_sum(tf.cast(tf.reduce_any(tf.not_equal(data, pad_val), axis=2), dtype=tf.int32), 1)
@@ -943,9 +929,7 @@ def retrieve_seq_length_op3(data, pad_val=0):  # HangSheng: return tensor for se
 
 
 def target_mask_op(data, pad_val=0):  # HangSheng: return tensor for mask,if input is tf.string
-    """Return tensor for mask, if input is ``tf.string``.
-
-    """
+    """Return tensor for mask, if input is ``tf.string``."""
     data_shape_size = data.get_shape().ndims
     if data_shape_size == 3:
         return tf.cast(tf.reduce_any(tf.not_equal(data, pad_val), axis=2), dtype=tf.int32)
@@ -1045,7 +1029,7 @@ class DynamicRNNLayer(Layer):
     ...             return_last=False,                    # for encoder, set to True
     ...             return_seq_2d=True,                   # stack denselayer or compute cost after it
     ...             name='dynamicrnn')
-    ... net = tl.layers.DenseLayer(net, n_units=vocab_size, name="output")
+    >>> net = tl.layers.DenseLayer(net, n_units=vocab_size, name="output")
 
     References
     ----------
@@ -1081,8 +1065,6 @@ class DynamicRNNLayer(Layer):
             prev_layer=prev_layer, cell_init_args=cell_init_args, dynamic_rnn_init_args=dynamic_rnn_init_args, name=name
         )
 
-        self.inputs = prev_layer.outputs
-
         if self.cell_init_args:
             self.cell_init_args['state_is_tuple'] = True  # 'use_peepholes': True
 
@@ -1096,7 +1078,7 @@ class DynamicRNNLayer(Layer):
             return_last = True
 
         logging.info(
-            "DynamicRNNLayer %s: n_hidden:%d, in_dim:%d in_shape:%s cell_fn:%s dropout:%s n_layer:%d" % (
+            "DynamicRNNLayer %s: n_hidden: %d, in_dim: %d in_shape: %s cell_fn: %s dropout: %s n_layer: %d" % (
                 self.name, n_hidden, self.inputs.get_shape().ndims, self.inputs.get_shape(), cell_fn.__name__, dropout,
                 n_layer
             )
@@ -1129,14 +1111,14 @@ class DynamicRNNLayer(Layer):
             if isinstance(dropout, (tuple, list)):
                 in_keep_prob = dropout[0]
                 out_keep_prob = dropout[1]
+
             elif isinstance(dropout, float):
                 in_keep_prob, out_keep_prob = dropout, dropout
+
             else:
                 raise Exception("Invalid dropout type (must be a 2-D tuple of " "float)")
-            try:  # TF1.0
-                DropoutWrapper_fn = tf.contrib.rnn.DropoutWrapper
-            except Exception:
-                DropoutWrapper_fn = tf.nn.rnn_cell.DropoutWrapper
+
+            DropoutWrapper_fn = tf.contrib.rnn.DropoutWrapper
 
             # cell_instance_fn1=cell_instance_fn        # HanSheng
             # cell_instance_fn=DropoutWrapper_fn(
@@ -1182,14 +1164,10 @@ class DynamicRNNLayer(Layer):
 
         # Computes sequence_length
         if sequence_length is None:
-            try:  # TF1.0
-                sequence_length = retrieve_seq_length_op(
-                    self.inputs if isinstance(self.inputs, tf.Tensor) else tf.stack(self.inputs)
-                )
-            except Exception:  # TF0.12
-                sequence_length = retrieve_seq_length_op(
-                    self.inputs if isinstance(self.inputs, tf.Tensor) else tf.pack(self.inputs)
-                )
+
+            sequence_length = retrieve_seq_length_op(
+                self.inputs if isinstance(self.inputs, tf.Tensor) else tf.stack(self.inputs)
+            )
 
         # Main - Computes outputs and last_states
         with tf.variable_scope(name, initializer=initializer) as vs:
@@ -1208,8 +1186,9 @@ class DynamicRNNLayer(Layer):
             # Manage the outputs
             if return_last:
                 # [batch_size, n_hidden]
-                # outputs = tf.transpose(tf.pack(outputs), [1, 0, 2]) # TF1.0 tf.pack --> tf.stack
+                # outputs = tf.transpose(tf.pack(outputs), [1, 0, 2])
                 self.outputs = advanced_indexing_op(outputs, sequence_length)
+
             else:
                 # [batch_size, n_step(max), n_hidden]
                 # self.outputs = result[0]["outputs"]
@@ -1217,20 +1196,15 @@ class DynamicRNNLayer(Layer):
                 if return_seq_2d:
                     # PTB tutorial:
                     # 2D Tensor [n_example, n_hidden]
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_hidden])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [-1, n_hidden])
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, n_hidden])
+
                 else:
                     # <akara>:
                     # 3D Tensor [batch_size, n_steps(max), n_hidden]
                     max_length = tf.shape(outputs)[1]
                     batch_size = tf.shape(outputs)[0]
 
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [batch_size, max_length, n_hidden])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [batch_size, max_length, n_hidden])
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [batch_size, max_length, n_hidden])
                     # self.outputs = tf.reshape(tf.concat(1, outputs), [-1, max_length, n_hidden])
 
         # Final state
@@ -1238,8 +1212,8 @@ class DynamicRNNLayer(Layer):
 
         self.sequence_length = sequence_length
 
-        self.all_layers.append(self.outputs)
-        self.all_params.extend(rnn_variables)
+        self._add_layers(self.outputs)
+        self._add_params(rnn_variables)
 
 
 class BiDynamicRNNLayer(Layer):
@@ -1344,8 +1318,6 @@ class BiDynamicRNNLayer(Layer):
             prev_layer=prev_layer, cell_init_args=cell_init_args, dynamic_rnn_init_args=dynamic_rnn_init_args, name=name
         )
 
-        self.inputs = prev_layer.outputs
-
         if self.cell_init_args:
             self.cell_init_args['state_is_tuple'] = True  # 'use_peepholes': True,
 
@@ -1359,7 +1331,7 @@ class BiDynamicRNNLayer(Layer):
             raise Exception("Please put in cell_fn")
 
         logging.info(
-            "BiDynamicRNNLayer %s: n_hidden:%d in_dim:%d in_shape:%s cell_fn:%s dropout:%s n_layer:%d" % (
+            "BiDynamicRNNLayer %s: n_hidden: %d in_dim: %d in_shape: %s cell_fn: %s dropout: %s n_layer: %d" % (
                 self.name, n_hidden, self.inputs.get_shape().ndims, self.inputs.get_shape(), cell_fn.__name__, dropout,
                 n_layer
             )
@@ -1426,14 +1398,10 @@ class BiDynamicRNNLayer(Layer):
             self.bw_initial_state = bw_initial_state
             # Computes sequence_length
             if sequence_length is None:
-                try:  # TF1.0
-                    sequence_length = retrieve_seq_length_op(
-                        self.inputs if isinstance(self.inputs, tf.Tensor) else tf.stack(self.inputs)
-                    )
-                except Exception:  # TF0.12
-                    sequence_length = retrieve_seq_length_op(
-                        self.inputs if isinstance(self.inputs, tf.Tensor) else tf.pack(self.inputs)
-                    )
+
+                sequence_length = retrieve_seq_length_op(
+                    self.inputs if isinstance(self.inputs, tf.Tensor) else tf.stack(self.inputs)
+                )
 
             if n_layer > 1:
                 if dropout:
@@ -1464,10 +1432,7 @@ class BiDynamicRNNLayer(Layer):
             logging.info("     n_params : %d" % (len(rnn_variables)))
 
             # Manage the outputs
-            try:  # TF1.0
-                outputs = tf.concat(outputs, 2)
-            except Exception:  # TF0.12
-                outputs = tf.concat(2, outputs)
+            outputs = tf.concat(outputs, 2)
 
             if return_last:
                 # [batch_size, 2 * n_hidden]
@@ -1478,20 +1443,15 @@ class BiDynamicRNNLayer(Layer):
                 if return_seq_2d:
                     # PTB tutorial:
                     # 2D Tensor [n_example, 2 * n_hidden]
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, 2 * n_hidden])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [-1, 2 * n_hidden])
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [-1, 2 * n_hidden])
+
                 else:
                     # <akara>:
                     # 3D Tensor [batch_size, n_steps(max), 2 * n_hidden]
                     max_length = tf.shape(outputs)[1]
                     batch_size = tf.shape(outputs)[0]
 
-                    try:  # TF1.0
-                        self.outputs = tf.reshape(tf.concat(outputs, 1), [batch_size, max_length, 2 * n_hidden])
-                    except Exception:  # TF0.12
-                        self.outputs = tf.reshape(tf.concat(1, outputs), [batch_size, max_length, 2 * n_hidden])
+                    self.outputs = tf.reshape(tf.concat(outputs, 1), [batch_size, max_length, 2 * n_hidden])
 
         # Final state
         self.fw_final_states = states_fw
@@ -1499,8 +1459,8 @@ class BiDynamicRNNLayer(Layer):
 
         self.sequence_length = sequence_length
 
-        self.all_layers.append(self.outputs)
-        self.all_params.extend(rnn_variables)
+        self._add_layers(self.outputs)
+        self._add_params(rnn_variables)
 
 
 class Seq2Seq(Layer):
@@ -1509,7 +1469,7 @@ class Seq2Seq(Layer):
     See `Model <https://camo.githubusercontent.com/9e88497fcdec5a9c716e0de5bc4b6d1793c6e23f/687474703a2f2f73757269796164656570616e2e6769746875622e696f2f696d672f736571327365712f73657132736571322e706e67>`__
     and `Sequence to Sequence Learning with Neural Networks <https://arxiv.org/abs/1409.3215>`__.
 
-    - Please check this example `Chatbot in 200 lines of code <https://github.com/zsdonghao/seq2seq-chatbot>`__.
+    - Please check this example `Chatbot in 200 lines of code <https://github.com/tensorlayer/seq2seq-chatbot>`__.
     - The Author recommends users to read the source code of :class:`DynamicRNNLayer` and :class:`Seq2Seq`.
 
     Parameters
@@ -1579,8 +1539,8 @@ class Seq2Seq(Layer):
     >>> target_seqs = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="target_seqs")
     >>> target_mask = tf.placeholder(dtype=tf.int64, shape=[batch_size, None], name="target_mask") # tl.prepro.sequences_get_mask()
     >>> with tf.variable_scope("model"):
-    ...     # for chatbot, you can use the same embedding layer,
-    ...     # for translation, you may want to use 2 seperated embedding layers
+    >>>     # for chatbot, you can use the same embedding layer,
+    >>>     # for translation, you may want to use 2 seperated embedding layers
     >>>     with tf.variable_scope("embedding") as vs:
     >>>         net_encode = EmbeddingInputlayer(
     ...                 inputs = encode_seqs,
@@ -1629,21 +1589,23 @@ class Seq2Seq(Layer):
             return_seq_2d=False,
             name='seq2seq',
     ):
-        super(Seq2Seq, self).__init__(prev_layer=None, name=name)
+        super(Seq2Seq,
+              self).__init__(prev_layer=[net_encode_in, net_decode_in], cell_init_args=cell_init_args, name=name)
 
-        if cell_init_args is None:
-            cell_init_args = {'state_is_tuple': True}
+        if self.cell_init_args:
+            self.cell_init_args['state_is_tuple'] = True  # 'use_peepholes': True,
 
         if cell_fn is None:
-            raise Exception("Please put in cell_fn")
+            raise ValueError("cell_fn cannot be set to None")
+
         if 'GRU' in cell_fn.__name__:
             try:
                 cell_init_args.pop('state_is_tuple')
             except Exception:
                 logging.warning("pop state_is_tuple fails.")
-        # self.inputs = layer.outputs
+
         logging.info(
-            "[*] Seq2Seq %s: n_hidden:%d cell_fn:%s dropout:%s n_layer:%d" %
+            "[*] Seq2Seq %s: n_hidden: %d cell_fn: %s dropout: %s n_layer: %d" %
             (self.name, n_hidden, cell_fn.__name__, dropout, n_layer)
         )
 
@@ -1651,18 +1613,18 @@ class Seq2Seq(Layer):
             # tl.layers.set_name_reuse(reuse)
             # network = InputLayer(self.inputs, name=name+'/input')
             network_encode = DynamicRNNLayer(
-                net_encode_in, cell_fn=cell_fn, cell_init_args=cell_init_args, n_hidden=n_hidden,
+                net_encode_in, cell_fn=cell_fn, cell_init_args=self.cell_init_args, n_hidden=n_hidden,
                 initializer=initializer, initial_state=initial_state_encode, dropout=dropout, n_layer=n_layer,
                 sequence_length=encode_sequence_length, return_last=False, return_seq_2d=True, name='encode'
             )
             # vs.reuse_variables()
             # tl.layers.set_name_reuse(True)
             network_decode = DynamicRNNLayer(
-                net_decode_in, cell_fn=cell_fn, cell_init_args=cell_init_args, n_hidden=n_hidden,
+                net_decode_in, cell_fn=cell_fn, cell_init_args=self.cell_init_args, n_hidden=n_hidden,
                 initializer=initializer,
-                initial_state=(network_encode.final_state if initial_state_decode is None else
-                               initial_state_decode), dropout=dropout, n_layer=n_layer,
-                sequence_length=decode_sequence_length, return_last=False, return_seq_2d=return_seq_2d, name='decode'
+                initial_state=(network_encode.final_state if initial_state_decode is None else initial_state_decode),
+                dropout=dropout, n_layer=n_layer, sequence_length=decode_sequence_length, return_last=False,
+                return_seq_2d=return_seq_2d, name='decode'
             )
             self.outputs = network_decode.outputs
 
@@ -1677,16 +1639,12 @@ class Seq2Seq(Layer):
         self.final_state_decode = network_decode.final_state
 
         # self.sequence_length = sequence_length
-        self.all_layers = list(network_encode.all_layers)
-        self.all_params = list(network_encode.all_params)
-        self.all_drop = dict(network_encode.all_drop)
+        self._add_layers(network_encode.all_layers)
+        self._add_params(network_encode.all_params)
+        self._add_dropout_layers(network_encode.all_drop)
 
-        self.all_layers.extend(list(network_decode.all_layers))
-        self.all_params.extend(list(network_decode.all_params))
-        self.all_drop.update(dict(network_decode.all_drop))
+        self._add_layers(network_decode.all_layers)
+        self._add_params(network_decode.all_params)
+        self._add_dropout_layers(network_decode.all_drop)
 
-        self.all_layers.append(self.outputs)
-        # self.all_params.extend( rnn_variables )
-
-        self.all_layers = list_remove_repeat(self.all_layers)
-        self.all_params = list_remove_repeat(self.all_params)
+        self._add_layers(self.outputs)

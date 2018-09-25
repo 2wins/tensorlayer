@@ -17,11 +17,12 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-import os, sys
-sys.path.insert(0, os.path.abspath("../")) # Important
+import os, sys, datetime
+sys.path.insert(0, os.path.abspath("../"))  # Important
+sys.path.insert(0, os.path.abspath(os.path.join("..", "tensorlayer"))) # Important
 
-from tensorlayer import __shortversion__
-from tensorlayer import __version__
+from package_info import __shortversion__
+from package_info import __version__
 
 # -- General configuration ------------------------------------------------
 
@@ -32,16 +33,48 @@ from tensorlayer import __version__
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
+
 # extensions = [
-#    'sphinx.ext.doctest',
 #    'sphinx.ext.coverage',
-#    'sphinx.ext.mathjax',
-#    'sphinx.ext.viewcode',
 #    'sphinx.ext.githubpages',
-#    'sphinx.ext.autosummary',
-#    'sphinx.ext.autodoc',
 #    'numpydoc',
 # ]
+
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.autosummary',
+    'sphinx.ext.doctest',
+    'sphinx.ext.ifconfig',
+    'sphinx.ext.inheritance_diagram',
+    'sphinx.ext.intersphinx',
+    'sphinx.ext.mathjax',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.todo',
+    'sphinx.ext.viewcode',
+]
+
+autodoc_mock_imports = [
+    'cv2',
+    'gridfs',
+    'horovod',
+    'hyperdash',
+    'imageio',
+    'lxml',
+    'matplotlib',
+    'nltk',
+    'numpy',
+    'PIL',
+    'progressbar',
+    'pymongo',
+    'scipy',
+    'skimage',
+    'sklearn',
+    'tensorflow',
+    'tqdm',
+
+    # TL C++ Packages
+    'tensorlayer.third_party.roi_pooling.roi_pooling.roi_pooling_ops',
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -61,7 +94,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'TensorLayer'
-copyright = '2016~2018, TensorLayer Contributors'
+copyright = '2016~%s, TensorLayer Contributors' % (str(datetime.datetime.now().year))
 author = 'TensorLayer Contributors'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -165,7 +198,7 @@ todo_include_todos = False
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ['_static']
+html_static_path = []
 
 # Add any extra paths that contain custom files (such as robots.txt or
 # .htaccess) here, relative to this directory. These files are copied
@@ -427,16 +460,9 @@ epub_exclude_files = ['search.html']
 # If false, no index is generated.
 #
 # epub_use_index = True
-extensions = ['sphinx.ext.autodoc',
-              'sphinx.ext.doctest',
-              'sphinx.ext.intersphinx',
-              'sphinx.ext.todo',
-              'sphinx.ext.ifconfig',
-              'sphinx.ext.viewcode',
-              'sphinx.ext.mathjax',
-              'sphinx.ext.inheritance_diagram',
-              'sphinx.ext.autosummary',
-              'sphinx.ext.napoleon']
+              
 pygments_style = 'sphinx'
+
 html_theme = "sphinx_rtd_theme"
-html_theme_path = ["_themes", ]
+
+html_theme_path = []
