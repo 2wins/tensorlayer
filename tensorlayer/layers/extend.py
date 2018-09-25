@@ -1,9 +1,11 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
 import tensorflow as tf
 
-from tensorlayer import tl_logging as logging
 from tensorlayer.layers.core import Layer
+
+from tensorlayer import logging
 
 from tensorlayer.decorators import deprecated_alias
 
@@ -29,10 +31,12 @@ class ExpandDimsLayer(Layer):
 
     Examples
     --------
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> x = tf.placeholder(tf.float32, (None, 100))
     >>> n = tl.layers.InputLayer(x, name='in')
     >>> n = tl.layers.ExpandDimsLayer(n, 2)
-    ... [None, 100, 1]
+    [None, 100, 1]
     """
 
     @deprecated_alias(layer='prev_layer', end_support_version=1.9)  # TODO remove this line for the 1.9 release
@@ -44,17 +48,12 @@ class ExpandDimsLayer(Layer):
     ):
         super(ExpandDimsLayer, self).__init__(prev_layer=prev_layer, name=name)
 
-        logging.info("ExpandDimsLayer  %s: axis:%d" % (name, axis))
-
-        self.inputs = prev_layer.outputs
+        logging.info("ExpandDimsLayer  %s: axis: %d" % (self.name, axis))
 
         with tf.variable_scope(name):
-            try:  # TF12 TF1.0
-                self.outputs = tf.expand_dims(self.inputs, axis=axis)
-            except Exception:  # TF11
-                self.outputs = tf.expand_dims(self.inputs, dim=axis)
+            self.outputs = tf.expand_dims(self.inputs, axis=axis)
 
-        self.all_layers.append(self.outputs)
+        self._add_layers(self.outputs)
 
 
 class TileLayer(Layer):
@@ -75,22 +74,23 @@ class TileLayer(Layer):
 
     Examples
     --------
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> x = tf.placeholder(tf.float32, (None, 100))
     >>> n = tl.layers.InputLayer(x, name='in')
     >>> n = tl.layers.ExpandDimsLayer(n, 2)
     >>> n = tl.layers.TileLayer(n, [-1, 1, 3])
-    ... [None, 100, 3]
+    [None, 100, 3]
     """
 
     @deprecated_alias(layer='prev_layer', end_support_version=1.9)  # TODO remove this line for the 1.9 release
     def __init__(self, prev_layer, multiples=None, name='tile'):
+
         super(TileLayer, self).__init__(prev_layer=prev_layer, name=name)
 
-        logging.info("TileLayer  %s: multiples:%s" % (name, multiples))
-
-        self.inputs = prev_layer.outputs
+        logging.info("TileLayer  %s: multiples: %s" % (self.name, multiples))
 
         with tf.variable_scope(name):
             self.outputs = tf.tile(self.inputs, multiples=multiples)
 
-        self.all_layers.append(self.outputs)
+        self._add_layers(self.outputs)

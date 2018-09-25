@@ -1,7 +1,12 @@
+#! /usr/bin/python
+# -*- coding: utf-8 -*-
+
+import gzip
 import os
 
 import numpy as np
 
+import six.moves.cPickle as pickle
 from tensorlayer.files.utils import maybe_download_and_extract
 
 __all__ = ['load_imdb_dataset']
@@ -37,9 +42,9 @@ def load_imdb_dataset(
     >>> X_train, y_train, X_test, y_test = tl.files.load_imdb_dataset(
     ...                                 nb_words=20000, test_split=0.2)
     >>> print('X_train.shape', X_train.shape)
-    ... (20000,)  [[1, 62, 74, ... 1033, 507, 27],[1, 60, 33, ... 13, 1053, 7]..]
+    (20000,)  [[1, 62, 74, ... 1033, 507, 27],[1, 60, 33, ... 13, 1053, 7]..]
     >>> print('y_train.shape', y_train.shape)
-    ... (20000,)  [1 0 0 ..., 1 0 1]
+    (20000,)  [1 0 0 ..., 1 0 1]
 
     References
     -----------
@@ -57,7 +62,7 @@ def load_imdb_dataset(
     else:
         f = open(os.path.join(path, filename), 'rb')
 
-    X, labels = cPickle.load(f)
+    X, labels = pickle.load(f)
     f.close()
 
     np.random.seed(seed)

@@ -1,3 +1,4 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
 import os
@@ -6,10 +7,8 @@ import imageio
 
 import numpy as np
 
-from tensorlayer import tl_logging as logging
-from tensorlayer import prepro
+import tensorlayer as tl
 from tensorlayer.lazy_imports import LazyImport
-
 cv2 = LazyImport("cv2")
 
 # Uncomment the following line if you got: _tkinter.TclError: no display name and no $DISPLAY environment variable
@@ -74,11 +73,11 @@ def read_images(img_list, path='', n_threads=10, printable=True):
     imgs = []
     for idx in range(0, len(img_list), n_threads):
         b_imgs_list = img_list[idx:idx + n_threads]
-        b_imgs = prepro.threading_data(b_imgs_list, fn=read_image, path=path)
-        # logging.info(b_imgs.shape)
+        b_imgs = tl.prepro.threading_data(b_imgs_list, fn=read_image, path=path)
+        # tl.logging.info(b_imgs.shape)
         imgs.extend(b_imgs)
         if printable:
-            logging.info('read %d from %s' % (len(imgs), path))
+            tl.logging.info('read %d from %s' % (len(imgs), path))
     return imgs
 
 
@@ -114,6 +113,8 @@ def save_images(images, size, image_path='_temp.png'):
 
     Examples
     ---------
+    >>> import numpy as np
+    >>> import tensorlayer as tl
     >>> images = np.random.rand(64, 100, 100, 3)
     >>> tl.visualize.save_images(images, [8, 8], 'temp.png')
 
@@ -131,6 +132,11 @@ def save_images(images, size, image_path='_temp.png'):
         return img
 
     def imsave(images, size, path):
+        if np.max(images) <= 1 and (-1 <= np.min(images) < 0):
+            images = ((images + 1) * 127.5).astype(np.uint8)
+        elif np.max(images) <= 1 and np.min(images) >= 0:
+            images = (images * 255).astype(np.uint8)
+
         return imageio.imwrite(path, merge(images, size))
 
     if len(images) > size[0] * size[1]:
@@ -194,12 +200,12 @@ def draw_boxes_and_labels_to_image(
 
     for i, _v in enumerate(coords):
         if is_center:
-            x, y, x2, y2 = prepro.obj_box_coord_centroid_to_upleft_butright(coords[i])
+            x, y, x2, y2 = tl.prepro.obj_box_coord_centroid_to_upleft_butright(coords[i])
         else:
             x, y, x2, y2 = coords[i]
 
         if is_rescale:  # scale back to pixel unit if the coords are the portion of width and high
-            x, y, x2, y2 = prepro.obj_box_coord_scale_to_pixelunit([x, y, x2, y2], (imh, imw))
+            x, y, x2, y2 = tl.prepro.obj_box_coord_scale_to_pixelunit([x, y, x2, y2], (imh, imw))
 
         cv2.rectangle(
             image,
@@ -223,7 +229,7 @@ def draw_boxes_and_labels_to_image(
         # cv2.imwrite('_my.png', image)
         save_image(image, save_name)
     # if len(coords) == 0:
-    #     logging.info("draw_boxes_and_labels_to_image: no bboxes exist, cannot draw !")
+    #     tl.logging.info("draw_boxes_and_labels_to_image: no bboxes exist, cannot draw !")
     return image
 
 
@@ -272,7 +278,7 @@ def draw_mpii_pose_to_image(image, poses, save_name='image.png'):
         image = image * 255
 
     for people in poses:
-        ### Pose Keyponts
+        # Pose Keyponts
         joint_pos = people['joint_pos']
         # draw sketch
         # joint id (0 - r ankle, 1 - r knee, 2 - r hip, 3 - l hip, 4 - l knee,
@@ -329,7 +335,7 @@ def draw_mpii_pose_to_image(image, poses, save_name='image.png'):
             # rr, cc = skimage.draw.circle(int(pos_loc[1]), int(pos_loc[0]), radius)
             # image[rr, cc] = [0, 255, 0]
 
-        ### Head
+        # Head
         head_rect = people['head_rect']
         if head_rect:  # if head exists
             cv2.rectangle(
@@ -350,7 +356,7 @@ draw_mpii_people_to_image = draw_mpii_pose_to_image
 
 
 def frame(I=None, second=5, saveable=True, name='frame', cmap=None, fig_idx=12836):
-    """Display a frame(image). Make sure OpenAI Gym render() is disable before using it.
+    """Display a frame. Make sure OpenAI Gym render() is disable before using it.
 
     Parameters
     ----------
@@ -416,7 +422,7 @@ def CNN2d(CNN=None, second=10, saveable=True, name='cnn', fig_idx=3119362):
 
     """
     import matplotlib.pyplot as plt
-    # logging.info(CNN.shape)    # (5, 5, 3, 64)
+    # tl.logging.info(CNN.shape)    # (5, 5, 3, 64)
     # exit()
     n_mask = CNN.shape[3]
     n_row = CNN.shape[0]
@@ -432,7 +438,7 @@ def CNN2d(CNN=None, second=10, saveable=True, name='cnn', fig_idx=3119362):
             if count > n_mask:
                 break
             fig.add_subplot(col, row, count)
-            # logging.info(CNN[:,:,:,count-1].shape, n_row, n_col)   # (5, 1, 32) 5 5
+            # tl.logging.info(CNN[:,:,:,count-1].shape, n_row, n_col)   # (5, 1, 32) 5 5
             # exit()
             # plt.imshow(
             #         np.reshape(CNN[count-1,:,:,:], (n_row, n_col)),
@@ -480,7 +486,7 @@ def images2d(images=None, second=10, saveable=True, name='images', dtype=None, f
 
     """
     import matplotlib.pyplot as plt
-    # logging.info(images.shape)    # (50000, 32, 32, 3)
+    # tl.logging.info(images.shape)    # (50000, 32, 32, 3)
     # exit()
     if dtype:
         images = np.asarray(images, dtype=dtype)
@@ -498,7 +504,7 @@ def images2d(images=None, second=10, saveable=True, name='images', dtype=None, f
             if count > n_mask:
                 break
             fig.add_subplot(col, row, count)
-            # logging.info(images[:,:,:,count-1].shape, n_row, n_col)   # (5, 1, 32) 5 5
+            # tl.logging.info(images[:,:,:,count-1].shape, n_row, n_col)   # (5, 1, 32) 5 5
             # plt.imshow(
             #         np.reshape(images[count-1,:,:,:], (n_row, n_col)),
             #         cmap='gray', interpolation="nearest")     # theano
@@ -559,7 +565,7 @@ def tsne_embedding(embeddings, reverse_dictionary, plot_only=500, second=5, save
             plt.ion()
             plt.figure(fig_idx)
 
-        plt.figure(figsize=figsize)  #in inches
+        plt.figure(figsize=figsize)  # in inches
 
         for i, label in enumerate(labels):
             x, y = low_dim_embs[i, :]
@@ -581,8 +587,11 @@ def tsne_embedding(embeddings, reverse_dictionary, plot_only=500, second=5, save
         low_dim_embs = tsne.fit_transform(embeddings[:plot_only, :])
         labels = [reverse_dictionary[i] for i in xrange(plot_only)]
         plot_with_labels(low_dim_embs, labels, second=second, saveable=saveable, name=name, fig_idx=fig_idx)
+
     except ImportError:
-        logging.info("Please install sklearn and matplotlib to visualize embeddings.")
+        _err = "Please install sklearn and matplotlib to visualize embeddings."
+        tl.logging.error(_err)
+        raise ImportError(_err)
 
 
 def draw_weights(W=None, second=10, saveable=True, shape=None, name='mnist', fig_idx=2396512):
@@ -637,7 +646,7 @@ def draw_weights(W=None, second=10, saveable=True, shape=None, name='mnist', fig
             # if np.mean(feature) < -0.015:      # condition threshold
             #     feature = np.zeros_like(feature)
             plt.imshow(np.reshape(feature, (shape[0], shape[1])), cmap='gray',
-                       interpolation="nearest")  #, vmin=np.min(feature), vmax=np.max(feature))
+                       interpolation="nearest")  # , vmin=np.min(feature), vmax=np.max(feature))
             # plt.title(name)
             # ------------------------------------------------------------
             # plt.imshow(np.reshape(W[:,count-1] ,(np.sqrt(size),np.sqrt(size))), cmap='gray', interpolation="nearest")

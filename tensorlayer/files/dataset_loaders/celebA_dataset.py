@@ -1,8 +1,11 @@
+#! /usr/bin/python
+# -*- coding: utf-8 -*-
+
 import os
 
 import zipfile
 
-from tensorlayer import tl_logging as logging
+from tensorlayer import logging
 
 from tensorlayer.files.utils import download_file_from_google_drive
 from tensorlayer.files.utils import exists_or_mkdir

@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorlayer as tl
 
+from tests.utils import CustomTestCase
 
-class Layer_Pooling_Test(unittest.TestCase):
+
+class Layer_Pooling_Test(CustomTestCase):
 
     @classmethod
     def setUpClass(cls):

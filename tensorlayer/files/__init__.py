@@ -1,3 +1,5 @@
+#! /usr/bin/python
+# -*- coding: utf-8 -*-
 """
 TensorLayer provides rich layer implementations trailed for
 various benchmarks and domain-specific problems. In addition, we also
@@ -65,4 +67,8 @@ __all__ = [
     'save_ckpt',
     'save_npz',
     'save_npz_dict',
+    #'save_graph',
+    #'load_graph',
+    #'save_graph_and_params',
+    #'load_graph_and_params',
 ]

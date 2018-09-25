@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorlayer as tl
+
+from tests.utils import CustomTestCase
 
 
 # define the network
@@ -20,7 +26,7 @@ def mlp(x, is_train=True, reuse=False):
     return network
 
 
-class MLP_Reuse_Test(unittest.TestCase):
+class MLP_Reuse_Test(CustomTestCase):
 
     @classmethod
     def setUpClass(cls):

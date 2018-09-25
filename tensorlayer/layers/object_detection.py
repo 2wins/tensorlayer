@@ -1,12 +1,16 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
-from tensorlayer import tl_logging as logging
 from tensorlayer.layers.core import Layer
+
+from tensorlayer import logging
 
 from tensorlayer.decorators import deprecated_alias
 
+from tensorlayer.lazy_imports import LazyImport
+
 try:
-    from tensorlayer.third_party.roi_pooling.roi_pooling.roi_pooling_ops import roi_pooling
+    roi_pooling = LazyImport("tensorlayer.third_party.roi_pooling.roi_pooling.roi_pooling_ops")
 except Exception as e:
     logging.error(e)
     logging.error("HINT: 1. https://github.com/deepsense-ai/roi-pooling  2. tensorlayer/third_party/roi_pooling")
@@ -36,7 +40,7 @@ class ROIPoolingLayer(Layer):
     Notes
     -----------
     - This implementation is imported from `Deepsense-AI <https://github.com/deepsense-ai/roi-pooling>`__ .
-    - Please install it by the instruction `HERE <https://github.com/zsdonghao/tensorlayer/blob/master/tensorlayer/third_party/roi_pooling/README.md>`__.
+    - Please install it by the instruction `HERE <https://github.com/tensorlayer/tensorlayer/blob/master/tensorlayer/third_party/roi_pooling/README.md>`__.
 
     """
 
@@ -51,10 +55,8 @@ class ROIPoolingLayer(Layer):
     ):
         super(ROIPoolingLayer, self).__init__(prev_layer=prev_layer, name=name)
 
-        logging.info("ROIPoolingLayer %s: (%d, %d)" % (name, pool_height, pool_width))
-
-        self.inputs = prev_layer.outputs
+        logging.info("ROIPoolingLayer %s: (%d, %d)" % (self.name, pool_height, pool_width))
 
         self.outputs = roi_pooling(self.inputs, rois, pool_height, pool_width)
 
-        self.all_layers.append(self.outputs)
+        self._add_layers(self.outputs)

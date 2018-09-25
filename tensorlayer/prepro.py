@@ -1,3 +1,4 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
 import copy
@@ -7,28 +8,31 @@ import time
 
 import numpy as np
 
+import tensorlayer as tl
+
 import scipy
 import scipy.ndimage as ndi
-
-import skimage
 
 from scipy import linalg
 from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.interpolation import map_coordinates
 
-from six.moves import range
+import skimage
 
 from skimage import exposure
 from skimage import transform
 
 from skimage.morphology import disk
-from skimage.morphology import erosion
-from skimage.morphology import binary_dilation
-from skimage.morphology import binary_erosion
+from skimage.morphology import erosion as _erosion
+from skimage.morphology import binary_dilation as _binary_dilation
+from skimage.morphology import binary_erosion as _binary_erosion
 
+from six.moves import range
 from tensorlayer.lazy_imports import LazyImport
-
-PIL = LazyImport("PIL")
+import PIL
+cv2 = LazyImport("cv2")
+import math
+import random
 
 # linalg https://docs.scipy.org/doc/scipy/reference/linalg.html
 # ndimage https://docs.scipy.org/doc/scipy/reference/ndimage.html
@@ -99,6 +103,12 @@ __all__ = [
     'sequences_add_end_id',
     'sequences_add_end_id_after_pad',
     'sequences_get_mask',
+    'keypoint_random_crop',
+    'keypoint_random_crop2',
+    'keypoint_random_rotate',
+    'keypoint_random_flip',
+    'keypoint_random_resize',
+    'keypoint_random_resize_shortestedge',
 ]
 
 
@@ -128,19 +138,19 @@ def threading_data(data=None, fn=None, thread_count=None, **kwargs):
     Customized image preprocessing function.
 
     >>> def distort_img(x):
-    ...     x = tl.prepro.flip_axis(x, axis=0, is_random=True)
-    ...     x = tl.prepro.flip_axis(x, axis=1, is_random=True)
-    ...     x = tl.prepro.crop(x, 100, 100, is_random=True)
-    ...     return x
+    >>>     x = tl.prepro.flip_axis(x, axis=0, is_random=True)
+    >>>     x = tl.prepro.flip_axis(x, axis=1, is_random=True)
+    >>>     x = tl.prepro.crop(x, 100, 100, is_random=True)
+    >>>     return x
     >>> images = tl.prepro.threading_data(images, distort_img)
 
     Process images and masks together (Usually be used for image segmentation).
 
     >>> X, Y --> [batch_size, row, col, 1]
     >>> data = tl.prepro.threading_data([_ for _ in zip(X, Y)], tl.prepro.zoom_multi, zoom_range=[0.5, 1], is_random=True)
-    ... data --> [batch_size, 2, row, col, 1]
+    data --> [batch_size, 2, row, col, 1]
     >>> X_, Y_ = data.transpose((1,0,2,3,4))
-    ... X_, Y_ --> [batch_size, row, col, 1]
+    X_, Y_ --> [batch_size, row, col, 1]
     >>> tl.vis.save_image(X_, 'images.png')
     >>> tl.vis.save_image(Y_, 'masks.png')
 
@@ -148,20 +158,21 @@ def threading_data(data=None, fn=None, thread_count=None, **kwargs):
 
     >>> X, Y --> [batch_size, row, col, 1]
     >>> data = tl.prepro.threading_data(X, tl.prepro.zoom_multi, 8, zoom_range=[0.5, 1], is_random=True)
-    ... data --> [batch_size, 2, row, col, 1]
+    data --> [batch_size, 2, row, col, 1]
     >>> X_, Y_ = data.transpose((1,0,2,3,4))
-    ... X_, Y_ --> [batch_size, row, col, 1]
+    X_, Y_ --> [batch_size, row, col, 1]
     >>> tl.vis.save_image(X_, 'after.png')
     >>> tl.vis.save_image(Y_, 'before.png')
 
     Customized function for processing images and masks together.
 
     >>> def distort_img(data):
-    ...     x, y = data
-    ...     x, y = tl.prepro.flip_axis_multi([x, y], axis=0, is_random=True)
-    ...     x, y = tl.prepro.flip_axis_multi([x, y], axis=1, is_random=True)
-    ...     x, y = tl.prepro.crop_multi([x, y], 100, 100, is_random=True)
-    ...     return x, y
+    >>>    x, y = data
+    >>>    x, y = tl.prepro.flip_axis_multi([x, y], axis=0, is_random=True)
+    >>>    x, y = tl.prepro.flip_axis_multi([x, y], axis=1, is_random=True)
+    >>>    x, y = tl.prepro.crop_multi([x, y], 100, 100, is_random=True)
+    >>>    return x, y
+
     >>> X, Y --> [batch_size, row, col, channel]
     >>> data = tl.prepro.threading_data([_ for _ in zip(X, Y)], distort_img)
     >>> X_, Y_ = data.transpose((1,0,2,3,4))
@@ -331,7 +342,7 @@ def crop(x, wrg, hrg, is_random=False, row_index=0, col_index=1):
     if is_random:
         h_offset = int(np.random.uniform(0, h - hrg) - 1)
         w_offset = int(np.random.uniform(0, w - wrg) - 1)
-        # logging.info(h_offset, w_offset, x[h_offset: hrg+h_offset ,w_offset: wrg+w_offset].shape)
+        # tl.logging.info(h_offset, w_offset, x[h_offset: hrg+h_offset ,w_offset: wrg+w_offset].shape)
         return x[h_offset:hrg + h_offset, w_offset:wrg + w_offset]
     else:  # central crop
         h_offset = int(np.floor((h - hrg) / 2.))
@@ -342,7 +353,7 @@ def crop(x, wrg, hrg, is_random=False, row_index=0, col_index=1):
         # old implementation
         # h_offset = (h - hrg)/2
         # w_offset = (w - wrg)/2
-        # # logging.info(x[h_offset: h-h_offset ,w_offset: w-w_offset].shape)
+        # tl.logging.info(x[h_offset: h-h_offset ,w_offset: w-w_offset].shape)
         # return x[h_offset: h-h_offset ,w_offset: w-w_offset]
         # central crop
 
@@ -946,7 +957,7 @@ def elastic_transform_multi(x, alpha, sigma, mode="constant", cval=0, is_random=
 
         x_, y_ = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), indexing='ij')
         indices = np.reshape(x_ + dx, (-1, 1)), np.reshape(y_ + dy, (-1, 1))
-        # logging.info(data.shape)
+        # tl.logging.info(data.shape)
         if is_3d:
             results.append(map_coordinates(data, indices, order=1).reshape((shape[0], shape[1], 1)))
         else:
@@ -991,12 +1002,12 @@ def zoom(
     if is_random:
         if zoom_range[0] == 1 and zoom_range[1] == 1:
             zx, zy = 1, 1
-            logging.info(" random_zoom : not zoom in/out")
+            tl.logging.info(" random_zoom : not zoom in/out")
         else:
             zx, zy = np.random.uniform(zoom_range[0], zoom_range[1], 2)
     else:
         zx, zy = zoom_range
-    # logging.info(zx, zy)
+    # tl.logging.info(zx, zy)
     zoom_matrix = np.array([[zx, 0, 0], [0, zy, 0], [0, 0, 1]])
 
     h, w = x.shape[row_index], x.shape[col_index]
@@ -1031,7 +1042,7 @@ def zoom_multi(
     if is_random:
         if zoom_range[0] == 1 and zoom_range[1] == 1:
             zx, zy = 1, 1
-            logging.info(" random_zoom : not zoom in/out")
+            tl.logging.info(" random_zoom : not zoom in/out")
         else:
             zx, zy = np.random.uniform(zoom_range[0], zoom_range[1], 2)
     else:
@@ -1152,9 +1163,7 @@ def illumination(x, gamma=1., contrast=1., saturation=1., is_random=False):
     >>> x = tl.prepro.illumination(x, 0.5, 0.6, 0.8, is_random=False)
 
     """
-
     if is_random:
-
         if not (len(gamma) == len(contrast) == len(saturation) == 2):
             raise AssertionError("if is_random = True, the arguments are (min, max)")
 
@@ -1169,7 +1178,7 @@ def illumination(x, gamma=1., contrast=1., saturation=1., is_random=False):
             gamma = 1
         im_ = brightness(x, gamma=gamma, gain=1, is_random=False)
 
-        # logging.info("using contrast and saturation")
+        # tl.logging.info("using contrast and saturation")
         image = PIL.Image.fromarray(im_)  # array -> PIL
         contrast_adjust = PIL.ImageEnhance.Contrast(image)
         image = contrast_adjust.enhance(np.random.uniform(contrast[0], contrast[1]))  #0.3,0.9))
@@ -1371,7 +1380,7 @@ def imresize(x, size=None, interp='bicubic', mode=None):
 
 
 # value scale
-def pixel_value_scale(im, val=0.9, clip=(-np.inf, np.inf), is_random=False):
+def pixel_value_scale(im, val=0.9, clip=None, is_random=False):
     """Scales each value in the pixels of the image.
 
     Parameters
@@ -1403,6 +1412,9 @@ def pixel_value_scale(im, val=0.9, clip=(-np.inf, np.inf), is_random=False):
     >>> im = pixel_value_scale(im, 0.9, [0, 255], is_random=False)
 
     """
+
+    clip = clip if clip is not None else (-np.inf, np.inf)
+
     if is_random:
         scale = 1 + np.random.uniform(-val, val)
         im = im * scale
@@ -1445,7 +1457,7 @@ def samplewise_norm(
     --------
     >>> x = samplewise_norm(x, samplewise_center=True, samplewise_std_normalization=True)
     >>> print(x.shape, np.mean(x), np.std(x))
-    ... (160, 176, 1), 0.0, 1.0
+    (160, 176, 1), 0.0, 1.0
 
     Notes
     ------
@@ -1519,11 +1531,11 @@ def get_zca_whitening_principal_components_img(X):
 
     """
     flatX = np.reshape(X, (X.shape[0], X.shape[1] * X.shape[2] * X.shape[3]))
-    logging.info("zca : computing sigma ..")
+    tl.logging.info("zca : computing sigma ..")
     sigma = np.dot(flatX.T, flatX) / flatX.shape[0]
-    logging.info("zca : computing U, S and V ..")
+    tl.logging.info("zca : computing U, S and V ..")
     U, S, _ = linalg.svd(sigma)  # USV
-    logging.info("zca : computing principal components ..")
+    tl.logging.info("zca : computing principal components ..")
     principal_components = np.dot(np.dot(U, np.diag(1. / np.sqrt(S + 10e-7))), U.T)
     return principal_components
 
@@ -1545,10 +1557,10 @@ def zca_whitening(x, principal_components):
 
     """
     flatx = np.reshape(x, (x.size))
-    # logging.info(principal_components.shape, x.shape)  # ((28160, 28160), (160, 176, 1))
+    # tl.logging.info(principal_components.shape, x.shape)  # ((28160, 28160), (160, 176, 1))
     # flatx = np.reshape(x, (x.shape))
     # flatx = np.reshape(x, (x.shape[0], ))
-    # logging.info(flatx.shape)  # (160, 176, 1)
+    # tl.logging.info(flatx.shape)  # (160, 176, 1)
     whitex = np.dot(flatx, principal_components)
     x = np.reshape(whitex, (x.shape[0], x.shape[1], x.shape[2]))
     return x
@@ -1678,11 +1690,11 @@ def drop(x, keep=0.5):
 # x = np.asarray([[1,2,3,4,5,6,7,8,9,10],[1,2,3,4,5,6,7,8,9,10]])
 # x = np.asarray([x,x,x,x,x,x])
 # x.shape = 10, 4, 3
-# # logging.info(x)
+# tl.logging.info(x)
 # # exit()
-# logging.info(x.shape)
+# tl.logging.info(x.shape)
 # # exit()
-# logging.info(drop(x, keep=1.))
+# tl.logging.info(drop(x, keep=1.))
 # exit()
 
 
@@ -1754,9 +1766,9 @@ def apply_transform(x, transform_matrix, channel_index=2, fill_mode='nearest', c
     final_affine_matrix = transform_matrix[:2, :2]
     final_offset = transform_matrix[:2, 2]
     channel_images = [
-        ndi.interpolation.affine_transform(
-            x_channel, final_affine_matrix, final_offset, order=order, mode=fill_mode, cval=cval
-        ) for x_channel in x
+        ndi.interpolation.
+        affine_transform(x_channel, final_affine_matrix, final_offset, order=order, mode=fill_mode, cval=cval)
+        for x_channel in x
     ]
     x = np.stack(channel_images, axis=0)
     x = np.rollaxis(x, 0, channel_index + 1)
@@ -1874,7 +1886,7 @@ def array_to_img(x, dim_ordering=(0, 1, 2), scale=True):
         x += max(-np.min(x), 0)
         x_max = np.max(x)
         if x_max != 0:
-            # logging.info(x_max)
+            # tl.logging.info(x_max)
             # x /= x_max
             x = x / x_max
         x *= 255
@@ -1942,7 +1954,7 @@ def pt2map(list_points=None, size=(100, 100), val=1):
         return i_m
     for xx in list_points:
         for x in xx:
-            # logging.info(x)
+            # tl.logging.info(x)
             i_m[int(np.round(x[0]))][int(np.round(x[1]))] = val
     return i_m
 
@@ -1965,7 +1977,7 @@ def binary_dilation(x, radius=3):
 
     """
     mask = disk(radius)
-    x = binary_dilation(x, selem=mask)
+    x = _binary_dilation(x, selem=mask)
 
     return x
 
@@ -2011,7 +2023,7 @@ def binary_erosion(x, radius=3):
 
     """
     mask = disk(radius)
-    x = binary_erosion(x, selem=mask)
+    x = _binary_erosion(x, selem=mask)
     return x
 
 
@@ -2033,7 +2045,7 @@ def erosion(x, radius=3):
 
     """
     mask = disk(radius)
-    x = erosion(x, selem=mask)
+    x = _erosion(x, selem=mask)
     return x
 
 
@@ -2057,13 +2069,13 @@ def obj_box_coords_rescale(coords=None, shape=None):
     ---------
     >>> coords = obj_box_coords_rescale(coords=[[30, 40, 50, 50], [10, 10, 20, 20]], shape=[100, 100])
     >>> print(coords)
-    ... [[0.3, 0.4, 0.5, 0.5], [0.1, 0.1, 0.2, 0.2]]
+      [[0.3, 0.4, 0.5, 0.5], [0.1, 0.1, 0.2, 0.2]]
     >>> coords = obj_box_coords_rescale(coords=[[30, 40, 50, 50]], shape=[50, 100])
     >>> print(coords)
-    ... [[0.3, 0.8, 0.5, 1.0]]
+      [[0.3, 0.8, 0.5, 1.0]]
     >>> coords = obj_box_coords_rescale(coords=[[30, 40, 50, 50]], shape=[100, 200])
     >>> print(coords)
-    ... [[0.15, 0.4, 0.25, 0.5]]
+      [[0.15, 0.4, 0.25, 0.5]]
 
     Returns
     -------
@@ -2112,7 +2124,7 @@ def obj_box_coord_rescale(coord=None, shape=None):
     Examples
     ---------
     >>> coord = tl.prepro.obj_box_coord_rescale(coord=[30, 40, 50, 50], shape=[100, 100])
-    ... [0.3, 0.4, 0.5, 0.5]
+      [0.3, 0.4, 0.5, 0.5]
 
     """
     if coord is None:
@@ -2142,7 +2154,7 @@ def obj_box_coord_scale_to_pixelunit(coord, shape=None):
     Examples
     ---------
     >>> x, y, x2, y2 = tl.prepro.obj_box_coord_scale_to_pixelunit([0.2, 0.3, 0.5, 0.7], shape=(100, 200, 3))
-    ... [40, 30, 100, 70]
+      [40, 30, 100, 70]
 
     """
     if shape is None:
@@ -2157,14 +2169,14 @@ def obj_box_coord_scale_to_pixelunit(coord, shape=None):
 
 
 # coords = obj_box_coords_rescale(coords=[[30, 40, 50, 50], [10, 10, 20, 20]], shape=[100, 100])
-# logging.info(coords)
-#     # ... [[0.3, 0.4, 0.5, 0.5], [0.1, 0.1, 0.2, 0.2]]
+# tl.logging.info(coords)
+#     #   [[0.3, 0.4, 0.5, 0.5], [0.1, 0.1, 0.2, 0.2]]
 # coords = obj_box_coords_rescale(coords=[[30, 40, 50, 50]], shape=[50, 100])
-# logging.info(coords)
-#     # ... [[0.3, 0.8, 0.5, 1.0]]
+# tl.logging.info(coords)
+#     #   [[0.3, 0.8, 0.5, 1.0]]
 # coords = obj_box_coords_rescale(coords=[[30, 40, 50, 50]], shape=[100, 200])
-# logging.info(coords)
-#     # ... [[0.15, 0.4, 0.25, 0.5]]
+# tl.logging.info(coords)
+#     #   [[0.15, 0.4, 0.25, 0.5]]
 # exit()
 
 
@@ -2186,10 +2198,9 @@ def obj_box_coord_centroid_to_upleft_butright(coord, to_int=False):
     Examples
     ---------
     >>> coord = obj_box_coord_centroid_to_upleft_butright([30, 40, 20, 20])
-    ... [20, 30, 40, 50]
+      [20, 30, 40, 50]
 
     """
-
     if len(coord) != 4:
         raise AssertionError("coordinate should be 4 values : [x, y, w, h]")
 
@@ -2205,7 +2216,7 @@ def obj_box_coord_centroid_to_upleft_butright(coord, to_int=False):
 
 
 # coord = obj_box_coord_centroid_to_upleft_butright([30, 40, 20, 20])
-# logging.info(coord)    [20, 30, 40, 50]
+# tl.logging.info(coord)    [20, 30, 40, 50]
 # exit()
 
 
@@ -2283,7 +2294,7 @@ def obj_box_coord_upleft_to_centroid(coord):
 
 
 def parse_darknet_ann_str_to_list(annotations):
-    """Input string format of class, x, y, w, h, return list of list format.
+    r"""Input string format of class, x, y, w, h, return list of list format.
 
     Parameters
     -----------
@@ -2365,19 +2376,18 @@ def obj_box_horizontal_flip(im, coords=None, is_rescale=False, is_center=False, 
     >>> im = np.zeros([80, 100])    # as an image with shape width=100, height=80
     >>> im, coords = obj_box_left_right_flip(im, coords=[[0.2, 0.4, 0.3, 0.3], [0.1, 0.5, 0.2, 0.3]], is_rescale=True, is_center=True, is_random=False)
     >>> print(coords)
-    ... [[0.8, 0.4, 0.3, 0.3], [0.9, 0.5, 0.2, 0.3]]
+      [[0.8, 0.4, 0.3, 0.3], [0.9, 0.5, 0.2, 0.3]]
     >>> im, coords = obj_box_left_right_flip(im, coords=[[0.2, 0.4, 0.3, 0.3]], is_rescale=True, is_center=False, is_random=False)
     >>> print(coords)
-    ... [[0.5, 0.4, 0.3, 0.3]]
+      [[0.5, 0.4, 0.3, 0.3]]
     >>> im, coords = obj_box_left_right_flip(im, coords=[[20, 40, 30, 30]], is_rescale=False, is_center=True, is_random=False)
     >>> print(coords)
-    ... [[80, 40, 30, 30]]
+      [[80, 40, 30, 30]]
     >>> im, coords = obj_box_left_right_flip(im, coords=[[20, 40, 30, 30]], is_rescale=False, is_center=False, is_random=False)
     >>> print(coords)
-    ... [[50, 40, 30, 30]]
+      [[50, 40, 30, 30]]
 
     """
-
     if coords is None:
         coords = []
 
@@ -2421,16 +2431,16 @@ obj_box_left_right_flip = obj_box_horizontal_flip
 
 # im = np.zeros([80, 100])    # as an image with shape width=100, height=80
 # im, coords = obj_box_left_right_flip(im, coords=[[0.2, 0.4, 0.3, 0.3], [0.1, 0.5, 0.2, 0.3]], is_rescale=True, is_center=True, is_random=False)
-# logging.info(coords)
-# # ... [[0.8, 0.4, 0.3, 0.3], [0.9, 0.5, 0.2, 0.3]]
+# tl.logging.info(coords)
+# #   [[0.8, 0.4, 0.3, 0.3], [0.9, 0.5, 0.2, 0.3]]
 # im, coords = obj_box_left_right_flip(im, coords=[[0.2, 0.4, 0.3, 0.3]], is_rescale=True, is_center=False, is_random=False)
-# logging.info(coords)
+# tl.logging.info(coords)
 # # [[0.5, 0.4, 0.3, 0.3]]
 # im, coords = obj_box_left_right_flip(im, coords=[[20, 40, 30, 30]], is_rescale=False, is_center=True, is_random=False)
-# logging.info(coords)
-# # ... [[80, 40, 30, 30]]
+# tl.logging.info(coords)
+# #   [[80, 40, 30, 30]]
 # im, coords = obj_box_left_right_flip(im, coords=[[20, 40, 30, 30]], is_rescale=False, is_center=False, is_random=False)
-# logging.info(coords)
+# tl.logging.info(coords)
 # # [[50, 40, 30, 30]]
 # exit()
 
@@ -2461,16 +2471,16 @@ def obj_box_imresize(im, coords=None, size=None, interp='bicubic', mode=None, is
     >>> im = np.zeros([80, 100, 3])    # as an image with shape width=100, height=80
     >>> _, coords = obj_box_imresize(im, coords=[[20, 40, 30, 30], [10, 20, 20, 20]], size=[160, 200], is_rescale=False)
     >>> print(coords)
-    ... [[40, 80, 60, 60], [20, 40, 40, 40]]
+      [[40, 80, 60, 60], [20, 40, 40, 40]]
     >>> _, coords = obj_box_imresize(im, coords=[[20, 40, 30, 30]], size=[40, 100], is_rescale=False)
     >>> print(coords)
-    ... [[20, 20, 30, 15]]
+      [[20, 20, 30, 15]]
     >>> _, coords = obj_box_imresize(im, coords=[[20, 40, 30, 30]], size=[60, 150], is_rescale=False)
     >>> print(coords)
-    ... [[30, 30, 45, 22]]
+      [[30, 30, 45, 22]]
     >>> im2, coords = obj_box_imresize(im, coords=[[0.2, 0.4, 0.3, 0.3]], size=[160, 200], is_rescale=True)
     >>> print(coords, im2.shape)
-    ... [[0.2, 0.4, 0.3, 0.3]] (160, 200, 3)
+      [[0.2, 0.4, 0.3, 0.3]] (160, 200, 3)
 
     """
     if coords is None:
@@ -2494,7 +2504,7 @@ def obj_box_imresize(im, coords=None, size=None, interp='bicubic', mode=None, is
             # x' = x * (imw'/imw)
             x = int(coord[0] * (size[1] / imw))
             # y' = y * (imh'/imh)
-            # logging.info('>>', coord[1], size[0], imh)
+            # tl.logging.info('>>', coord[1], size[0], imh)
             y = int(coord[1] * (size[0] / imh))
             # w' = w * (imw'/imw)
             w = int(coord[2] * (size[1] / imw))
@@ -2508,17 +2518,17 @@ def obj_box_imresize(im, coords=None, size=None, interp='bicubic', mode=None, is
 
 # im = np.zeros([80, 100, 3])    # as an image with shape width=100, height=80
 # _, coords = obj_box_imresize(im, coords=[[20, 40, 30, 30], [10, 20, 20, 20]], size=[160, 200], is_rescale=False)
-# logging.info(coords)
-# # ... [[40, 80, 60, 60], [20, 40, 40, 40]]
+# tl.logging.info(coords)
+# #   [[40, 80, 60, 60], [20, 40, 40, 40]]
 # _, coords = obj_box_imresize(im, coords=[[20, 40, 30, 30]], size=[40, 100], is_rescale=False)
-# logging.info(coords)
-# # ... [20, 20, 30, 15]
+# tl.logging.info(coords)
+# #   [20, 20, 30, 15]
 # _, coords = obj_box_imresize(im, coords=[[20, 40, 30, 30]], size=[60, 150], is_rescale=False)
-# logging.info(coords)
-# # ... [30, 30, 45, 22]
+# tl.logging.info(coords)
+# #   [30, 30, 45, 22]
 # im2, coords = obj_box_imresize(im, coords=[[0.2, 0.4, 0.3, 0.3]], size=[160, 200], is_rescale=True)
-# logging.info(coords, im2.shape)
-# # ... [0.2, 0.4, 0.3, 0.3] (160, 200, 3)
+# tl.logging.info(coords, im2.shape)
+# # [0.2, 0.4, 0.3, 0.3] (160, 200, 3)
 # exit()
 
 
@@ -2635,12 +2645,12 @@ def obj_box_crop(
             h = im_new.shape[0] - y
 
         if (w / (h + 1.) > thresh_wh2) or (h / (w + 1.) > thresh_wh2):  # object shape strange: too narrow
-            # logging.info('xx', w, h)
+            # tl.logging.info('xx', w, h)
             return None
 
         if (w / (im_new.shape[1] * 1.) < thresh_wh) or (h / (im_new.shape[0] * 1.) <
                                                         thresh_wh):  # object shape strange: too narrow
-            # logging.info('yy', w, im_new.shape[1], h, im_new.shape[0])
+            # tl.logging.info('yy', w, im_new.shape[1], h, im_new.shape[0])
             return None
 
         coord = [x, y, w, h]
@@ -2770,12 +2780,12 @@ def obj_box_shift(
             h = im_new.shape[0] - y
 
         if (w / (h + 1.) > thresh_wh2) or (h / (w + 1.) > thresh_wh2):  # object shape strange: too narrow
-            # logging.info('xx', w, h)
+            # tl.logging.info('xx', w, h)
             return None
 
         if (w / (im_new.shape[1] * 1.) < thresh_wh) or (h / (im_new.shape[0] * 1.) <
                                                         thresh_wh):  # object shape strange: too narrow
-            # logging.info('yy', w, im_new.shape[1], h, im_new.shape[0])
+            # tl.logging.info('yy', w, im_new.shape[1], h, im_new.shape[0])
             return None
 
         coord = [x, y, w, h]
@@ -2856,12 +2866,12 @@ def obj_box_zoom(
     if is_random:
         if zoom_range[0] == 1 and zoom_range[1] == 1:
             zx, zy = 1, 1
-            logging.info(" random_zoom : not zoom in/out")
+            tl.logging.info(" random_zoom : not zoom in/out")
         else:
             zx, zy = np.random.uniform(zoom_range[0], zoom_range[1], 2)
     else:
         zx, zy = zoom_range
-    # logging.info(zx, zy)
+    # tl.logging.info(zx, zy)
     zoom_matrix = np.array([[zx, 0, 0], [0, zy, 0], [0, 0, 1]])
 
     h, w = im.shape[row_index], im.shape[col_index]
@@ -2907,12 +2917,12 @@ def obj_box_zoom(
             h = im_new.shape[0] - y
 
         if (w / (h + 1.) > thresh_wh2) or (h / (w + 1.) > thresh_wh2):  # object shape strange: too narrow
-            # logging.info('xx', w, h)
+            # tl.logging.info('xx', w, h)
             return None
 
         if (w / (im_new.shape[1] * 1.) < thresh_wh) or (h / (im_new.shape[0] * 1.) <
                                                         thresh_wh):  # object shape strange: too narrow
-            # logging.info('yy', w, im_new.shape[1], h, im_new.shape[0])
+            # tl.logging.info('yy', w, im_new.shape[1], h, im_new.shape[0])
             return None
 
         coord = [x, y, w, h]
@@ -2981,9 +2991,9 @@ def pad_sequences(sequences, maxlen=None, dtype='int32', padding='post', truncat
     >>> sequences = [[1,1,1,1,1],[2,2,2],[3,3]]
     >>> sequences = pad_sequences(sequences, maxlen=None, dtype='int32',
     ...                  padding='post', truncating='pre', value=0.)
-    ... [[1 1 1 1 1]
-    ...  [2 2 2 0 0]
-    ...  [3 3 0 0 0]]
+    [[1 1 1 1 1]
+     [2 2 2 0 0]
+     [3 3 0 0 0]]
 
     """
     lengths = [len(s) for s in sequences]
@@ -3047,7 +3057,7 @@ def remove_pad_sequences(sequences, pad_id=0):
     ----------
     >>> sequences = [[2,3,4,0,0], [5,1,2,3,4,0,0,0], [4,5,0,2,4,0,0,0]]
     >>> print(remove_pad_sequences(sequences, pad_id=0))
-    ... [[2, 3, 4], [5, 1, 2, 3, 4], [4, 5, 0, 2, 4]]
+    [[2, 3, 4], [5, 1, 2, 3, 4], [4, 5, 0, 2, 4]]
 
     """
     sequences_out = copy.deepcopy(sequences)
@@ -3091,7 +3101,7 @@ def process_sequences(sequences, end_id=0, pad_val=0, is_shorten=True, remain_en
     >>> sentences_ids = [[4, 3, 5, 3, 2, 2, 2, 2],  <-- end_id is 2
     ...                  [5, 3, 9, 4, 9, 2, 2, 3]]  <-- end_id is 2
     >>> sentences_ids = precess_sequences(sentences_ids, end_id=vocab.end_id, pad_val=0, is_shorten=True)
-    ... [[4, 3, 5, 3, 0], [5, 3, 9, 4, 9]]
+    [[4, 3, 5, 3, 0], [5, 3, 9, 4, 9]]
 
     """
     max_length = 0
@@ -3136,9 +3146,9 @@ def sequences_add_start_id(sequences, start_id=0, remove_last=False):
     ---------
     >>> sentences_ids = [[4,3,5,3,2,2,2,2], [5,3,9,4,9,2,2,3]]
     >>> sentences_ids = sequences_add_start_id(sentences_ids, start_id=2)
-    ... [[2, 4, 3, 5, 3, 2, 2, 2, 2], [2, 5, 3, 9, 4, 9, 2, 2, 3]]
+    [[2, 4, 3, 5, 3, 2, 2, 2, 2], [2, 5, 3, 9, 4, 9, 2, 2, 3]]
     >>> sentences_ids = sequences_add_start_id(sentences_ids, start_id=2, remove_last=True)
-    ... [[2, 4, 3, 5, 3, 2, 2, 2], [2, 5, 3, 9, 4, 9, 2, 2]]
+    [[2, 4, 3, 5, 3, 2, 2, 2], [2, 5, 3, 9, 4, 9, 2, 2]]
 
     For Seq2seq
 
@@ -3175,7 +3185,7 @@ def sequences_add_end_id(sequences, end_id=888):
     ---------
     >>> sequences = [[1,2,3],[4,5,6,7]]
     >>> print(sequences_add_end_id(sequences, end_id=999))
-    ... [[1, 2, 3, 999], [4, 5, 6, 999]]
+    [[1, 2, 3, 999], [4, 5, 6, 999]]
 
     """
     sequences_out = [[] for _ in range(len(sequences))]  #[[]] * len(sequences)
@@ -3205,7 +3215,7 @@ def sequences_add_end_id_after_pad(sequences, end_id=888, pad_id=0):
     ---------
     >>> sequences = [[1,2,0,0], [1,2,3,0], [1,2,3,4]]
     >>> print(sequences_add_end_id_after_pad(sequences, end_id=99, pad_id=0))
-    ... [[1, 2, 99, 0], [1, 2, 3, 99], [1, 2, 3, 4]]
+    [[1, 2, 99, 0], [1, 2, 3, 99], [1, 2, 3, 4]]
 
     """
     # sequences_out = [[] for _ in range(len(sequences))]#[[]] * len(sequences)
@@ -3253,8 +3263,8 @@ def sequences_get_mask(sequences, pad_val=0):
     >>> sentences_ids = [[4, 0, 5, 3, 0, 0],
     ...                  [5, 3, 9, 4, 9, 0]]
     >>> mask = sequences_get_mask(sentences_ids, pad_val=0)
-    ... [[1 1 1 1 0 0]
-    ...  [1 1 1 1 1 0]]
+    [[1 1 1 1 0 0]
+     [1 1 1 1 1 0]]
 
     """
     mask = np.ones_like(sequences)
@@ -3265,3 +3275,547 @@ def sequences_get_mask(sequences, pad_val=0):
             else:
                 break  # <-- exit the for loop, prepcess next sequence
     return mask
+
+
+def keypoint_random_crop2(image, annos, mask=None, size=(368, 368)):
+    """Randomly reszie and crop image using padding without influence scales.
+    Resize the image match with the minimum size before cropping, this API will change the zoom scale of object.
+
+    Parameters
+    -----------
+    image : 3 channel image
+        The given image for augmentation.
+    annos : list of list of floats
+        The keypoints annotation of people.
+    mask : single channel image or None
+        The mask if available.
+    size : tuple of int
+        The size of returned image.
+
+    Returns
+    ----------
+    preprocessed image, annos, mask
+
+    """
+
+    def resize_image(image, annos, mask, _target_width, _target_height):
+        """Reszie image
+
+        Parameters
+        -----------
+        image : 3 channel image
+            the given image for augmentation
+        annos : list of list of floats
+            keypoints of people
+        mask : single channel image or None
+        _target_width : int
+            expected width
+        _target_height : int
+            expected height
+
+        Returns
+        ----------
+        preprocessed input image, annos, mask
+
+        """
+        y, x, _ = np.shape(image)
+
+        ratio_y = _target_height / y
+        ratio_x = _target_width / x
+
+        new_joints = []
+        # update meta
+        for people in annos:
+            new_keypoints = []
+            for keypoints in people:
+                if keypoints[0] < 0 or keypoints[1] < 0:
+                    new_keypoints.append((-1000, -1000))
+                    continue
+                pts = (int(keypoints[0] * ratio_x + 0.5), int(keypoints[1] * ratio_y + 0.5))
+                if pts[0] > _target_width - 1 or pts[1] > _target_height - 1:
+                    new_keypoints.append((-1000, -1000))
+                    continue
+
+                new_keypoints.append(pts)
+            new_joints.append(new_keypoints)
+        annos = new_joints
+
+        new_image = cv2.resize(image, (_target_width, _target_height), interpolation=cv2.INTER_AREA)
+        if mask is not None:
+            new_mask = cv2.resize(mask, (_target_width, _target_height), interpolation=cv2.INTER_AREA)
+            return new_image, annos, new_mask
+        else:
+            return new_image, annos, None
+
+    _target_height = size[0]
+    _target_width = size[1]
+    if len(np.shape(image)) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    height, width, _ = np.shape(image)
+    # print("the size of original img is:", height, width)
+    if height <= width:
+        ratio = _target_height / height
+        new_width = int(ratio * width)
+        if height == width:
+            new_width = _target_height
+
+        image, annos, mask = resize_image(image, annos, mask, new_width, _target_height)
+
+        # for i in annos:
+        #     if len(i) is not 19:
+        #         print('Joints of person is not 19 ERROR FROM RESIZE')
+
+        if new_width > _target_width:
+            crop_range_x = np.random.randint(0, new_width - _target_width)
+        else:
+            crop_range_x = 0
+        image = image[:, crop_range_x:crop_range_x + _target_width, :]
+        if mask is not None:
+            mask = mask[:, crop_range_x:crop_range_x + _target_width]
+        # joint_list= []
+        new_joints = []
+        #annos-pepople-joints (must be 19 or [])
+        for people in annos:
+            # print("number of keypoints is", np.shape(people))
+            new_keypoints = []
+            for keypoints in people:
+                if keypoints[0] < -10 or keypoints[1] < -10:
+                    new_keypoints.append((-1000, -1000))
+                    continue
+                top = crop_range_x + _target_width - 1
+                if keypoints[0] >= crop_range_x and keypoints[0] <= top:
+                    # pts = (keypoints[0]-crop_range_x, keypoints[1])
+                    pts = (int(keypoints[0] - crop_range_x), int(keypoints[1]))
+                else:
+                    pts = (-1000, -1000)
+                new_keypoints.append(pts)
+
+            new_joints.append(new_keypoints)
+            # if len(new_keypoints) != 19:
+            #     print('1:The Length of joints list should be 0 or 19 but actually:', len(new_keypoints))
+        annos = new_joints
+
+    if height > width:
+        ratio = _target_width / width
+        new_height = int(ratio * height)
+        image, annos, mask = resize_image(image, annos, mask, _target_width, new_height)
+
+        # for i in annos:
+        #     if len(i) is not 19:
+        #         print('Joints of person is not 19 ERROR')
+
+        if new_height > _target_height:
+            crop_range_y = np.random.randint(0, new_height - _target_height)
+
+        else:
+            crop_range_y = 0
+        image = image[crop_range_y:crop_range_y + _target_width, :, :]
+        if mask is not None:
+            mask = mask[crop_range_y:crop_range_y + _target_width, :]
+        new_joints = []
+
+        for people in annos:  # TODO : speed up with affine transform
+            new_keypoints = []
+            for keypoints in people:
+
+                # case orginal points are not usable
+                if keypoints[0] < 0 or keypoints[1] < 0:
+                    new_keypoints.append((-1000, -1000))
+                    continue
+                # y axis coordinate change
+                bot = crop_range_y + _target_height - 1
+                if keypoints[1] >= crop_range_y and keypoints[1] <= bot:
+                    # pts = (keypoints[0], keypoints[1]-crop_range_y)
+                    pts = (int(keypoints[0]), int(keypoints[1] - crop_range_y))
+                    # if pts[0]>367 or pts[1]>367:
+                    #     print('Error2')
+                else:
+                    pts = (-1000, -1000)
+
+                new_keypoints.append(pts)
+
+            new_joints.append(new_keypoints)
+            if len(new_keypoints) != 19:
+                print('2:The Length of joints list should be 0 or 19 but actually:', len(new_keypoints))
+
+        annos = new_joints
+
+    # mask = cv2.resize(mask, (46, 46), interpolation=cv2.INTER_AREA)
+    if mask is not None:
+        return image, annos, mask
+    else:
+        return image, annos, None
+
+
+def keypoint_random_crop(image, annos, mask=None, size=(368, 368)):
+    """Randomly crop an image and corresponding keypoints without influence scales, given by ``keypoint_random_resize_shortestedge``.
+
+    Parameters
+    -----------
+    image : 3 channel image
+        The given image for augmentation.
+    annos : list of list of floats
+        The keypoints annotation of people.
+    mask : single channel image or None
+        The mask if available.
+    size : tuple of int
+        The size of returned image.
+
+    Returns
+    ----------
+    preprocessed image, annotation, mask
+
+    """
+
+    _target_height = size[0]
+    _target_width = size[1]
+    target_size = (_target_width, _target_height)
+
+    if len(np.shape(image)) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    height, width, _ = np.shape(image)
+
+    for _ in range(50):
+        x = random.randrange(0, width - target_size[0]) if width > target_size[0] else 0
+        y = random.randrange(0, height - target_size[1]) if height > target_size[1] else 0
+
+        # check whether any face is inside the box to generate a reasonably-balanced datasets
+        for joint in annos:
+            if x <= joint[0][0] < x + target_size[0] and y <= joint[0][1] < y + target_size[1]:
+                break
+
+    def pose_crop(image, annos, mask, x, y, w, h):  # TODO : speed up with affine transform
+        # adjust image
+        target_size = (w, h)
+
+        img = image
+        resized = img[y:y + target_size[1], x:x + target_size[0], :]
+        resized_mask = mask[y:y + target_size[1], x:x + target_size[0]]
+        # adjust meta data
+        adjust_joint_list = []
+        for joint in annos:
+            adjust_joint = []
+            for point in joint:
+                if point[0] < -10 or point[1] < -10:
+                    adjust_joint.append((-1000, -1000))
+                    continue
+                new_x, new_y = point[0] - x, point[1] - y
+                if new_x > 367 or new_y > 367:
+                    adjust_joint.append((-1000, -1000))
+                    continue
+                adjust_joint.append((new_x, new_y))
+            adjust_joint_list.append(adjust_joint)
+
+        return resized, adjust_joint_list, resized_mask
+
+    return pose_crop(image, annos, mask, x, y, target_size[0], target_size[1])
+
+
+def keypoint_random_rotate(image, annos, mask=None, rg=15.):
+    """Rotate an image and corresponding keypoints.
+
+    Parameters
+    -----------
+    image : 3 channel image
+        The given image for augmentation.
+    annos : list of list of floats
+        The keypoints annotation of people.
+    mask : single channel image or None
+        The mask if available.
+    rg : int or float
+        Degree to rotate, usually 0 ~ 180.
+
+    Returns
+    ----------
+    preprocessed image, annos, mask
+
+    """
+
+    def _rotate_coord(shape, newxy, point, angle):
+        angle = -1 * angle / 180.0 * math.pi
+        ox, oy = shape
+        px, py = point
+        ox /= 2
+        oy /= 2
+        qx = math.cos(angle) * (px - ox) - math.sin(angle) * (py - oy)
+        qy = math.sin(angle) * (px - ox) + math.cos(angle) * (py - oy)
+        new_x, new_y = newxy
+        qx += ox - new_x
+        qy += oy - new_y
+        return int(qx + 0.5), int(qy + 0.5)
+
+    def _largest_rotated_rect(w, h, angle):
+        """
+        Get largest rectangle after rotation.
+        http://stackoverflow.com/questions/16702966/rotate-image-and-crop-out-black-borders
+        """
+        angle = angle / 180.0 * math.pi
+        if w <= 0 or h <= 0:
+            return 0, 0
+
+        width_is_longer = w >= h
+        side_long, side_short = (w, h) if width_is_longer else (h, w)
+
+        # since the solutions for angle, -angle and 180-angle are all the same,
+        # if suffices to look at the first quadrant and the absolute values of sin,cos:
+        sin_a, cos_a = abs(math.sin(angle)), abs(math.cos(angle))
+        if side_short <= 2. * sin_a * cos_a * side_long:
+            # half constrained case: two crop corners touch the longer side,
+            #   the other two corners are on the mid-line parallel to the longer line
+            x = 0.5 * side_short
+            wr, hr = (x / sin_a, x / cos_a) if width_is_longer else (x / cos_a, x / sin_a)
+        else:
+            # fully constrained case: crop touches all 4 sides
+            cos_2a = cos_a * cos_a - sin_a * sin_a
+            wr, hr = (w * cos_a - h * sin_a) / cos_2a, (h * cos_a - w * sin_a) / cos_2a
+        return int(np.round(wr)), int(np.round(hr))
+
+    img_shape = np.shape(image)
+    height = img_shape[0]
+    width = img_shape[1]
+    deg = np.random.uniform(-rg, rg)
+
+    img = image
+    center = (img.shape[1] * 0.5, img.shape[0] * 0.5)  # x, y
+    rot_m = cv2.getRotationMatrix2D((int(center[0]), int(center[1])), deg, 1)
+    ret = cv2.warpAffine(img, rot_m, img.shape[1::-1], flags=cv2.INTER_AREA, borderMode=cv2.BORDER_CONSTANT)
+    if img.ndim == 3 and ret.ndim == 2:
+        ret = ret[:, :, np.newaxis]
+    neww, newh = _largest_rotated_rect(ret.shape[1], ret.shape[0], deg)
+    neww = min(neww, ret.shape[1])
+    newh = min(newh, ret.shape[0])
+    newx = int(center[0] - neww * 0.5)
+    newy = int(center[1] - newh * 0.5)
+    # print(ret.shape, deg, newx, newy, neww, newh)
+    img = ret[newy:newy + newh, newx:newx + neww]
+    # adjust meta data
+    adjust_joint_list = []
+    for joint in annos:  # TODO : speed up with affine transform
+        adjust_joint = []
+        for point in joint:
+            if point[0] < -100 or point[1] < -100:
+                adjust_joint.append((-1000, -1000))
+                continue
+
+            x, y = _rotate_coord((width, height), (newx, newy), point, deg)
+
+            if x > neww - 1 or y > newh - 1:
+                adjust_joint.append((-1000, -1000))
+                continue
+            if x < 0 or y < 0:
+                adjust_joint.append((-1000, -1000))
+                continue
+
+            adjust_joint.append((x, y))
+        adjust_joint_list.append(adjust_joint)
+    joint_list = adjust_joint_list
+
+    if mask is not None:
+        msk = mask
+        center = (msk.shape[1] * 0.5, msk.shape[0] * 0.5)  # x, y
+        rot_m = cv2.getRotationMatrix2D((int(center[0]), int(center[1])), deg, 1)
+        ret = cv2.warpAffine(msk, rot_m, msk.shape[1::-1], flags=cv2.INTER_AREA, borderMode=cv2.BORDER_CONSTANT)
+        if msk.ndim == 3 and msk.ndim == 2:
+            ret = ret[:, :, np.newaxis]
+        neww, newh = _largest_rotated_rect(ret.shape[1], ret.shape[0], deg)
+        neww = min(neww, ret.shape[1])
+        newh = min(newh, ret.shape[0])
+        newx = int(center[0] - neww * 0.5)
+        newy = int(center[1] - newh * 0.5)
+        # print(ret.shape, deg, newx, newy, neww, newh)
+        msk = ret[newy:newy + newh, newx:newx + neww]
+        return img, joint_list, msk
+    else:
+        return img, joint_list, None
+
+
+def keypoint_random_flip(
+        image, annos, mask=None, prob=0.5, flip_list=(0, 1, 5, 6, 7, 2, 3, 4, 11, 12, 13, 8, 9, 10, 15, 14, 17, 16, 18)
+):
+    """Flip an image and corresponding keypoints.
+
+    Parameters
+    -----------
+    image : 3 channel image
+        The given image for augmentation.
+    annos : list of list of floats
+        The keypoints annotation of people.
+    mask : single channel image or None
+        The mask if available.
+    prob : float, 0 to 1
+        The probability to flip the image, if 1, always flip the image.
+    flip_list : tuple of int
+        Denotes how the keypoints number be changed after flipping. Default COCO format.
+
+    Returns
+    ----------
+    preprocessed image, annos, mask
+
+    """
+
+    _prob = np.random.uniform(0, 1.0)
+    if _prob < prob:
+        return image, annos, mask
+
+    _, width, _ = np.shape(image)
+    image = cv2.flip(image, 1)
+    mask = cv2.flip(mask, 1)
+    new_joints = []
+    for people in annos:  # TODO : speed up with affine transform
+        new_keypoints = []
+        for k in flip_list:
+            point = people[k]
+            if point[0] < 0 or point[1] < 0:
+                new_keypoints.append((-1000, -1000))
+                continue
+            if point[0] > image.shape[1] - 1 or point[1] > image.shape[0] - 1:
+                new_keypoints.append((-1000, -1000))
+                continue
+            if (width - point[0]) > image.shape[1] - 1:
+                new_keypoints.append((-1000, -1000))
+                continue
+            new_keypoints.append((width - point[0], point[1]))
+        new_joints.append(new_keypoints)
+    annos = new_joints
+
+    return image, annos, mask
+
+
+def keypoint_random_resize(image, annos, mask=None, zoom_range=(0.8, 1.2)):
+    """Randomly resize an image and corresponding keypoints.
+    The height and width of image will be changed independently, so the scale will be changed.
+
+    Parameters
+    -----------
+    image : 3 channel image
+        The given image for augmentation.
+    annos : list of list of floats
+        The keypoints annotation of people.
+    mask : single channel image or None
+        The mask if available.
+    zoom_range : tuple of two floats
+        The minimum and maximum factor to zoom in or out, e.g (0.5, 1) means zoom out 1~2 times.
+
+    Returns
+    ----------
+    preprocessed image, annos, mask
+
+    """
+    height = image.shape[0]
+    width = image.shape[1]
+    _min, _max = zoom_range
+    scalew = np.random.uniform(_min, _max)
+    scaleh = np.random.uniform(_min, _max)
+
+    neww = int(width * scalew)
+    newh = int(height * scaleh)
+
+    dst = cv2.resize(image, (neww, newh), interpolation=cv2.INTER_AREA)
+    if mask is not None:
+        mask = cv2.resize(mask, (neww, newh), interpolation=cv2.INTER_AREA)
+    # adjust meta data
+    adjust_joint_list = []
+    for joint in annos:  # TODO : speed up with affine transform
+        adjust_joint = []
+        for point in joint:
+            if point[0] < -100 or point[1] < -100:
+                adjust_joint.append((-1000, -1000))
+                continue
+            adjust_joint.append((int(point[0] * scalew + 0.5), int(point[1] * scaleh + 0.5)))
+        adjust_joint_list.append(adjust_joint)
+    if mask is not None:
+        return dst, adjust_joint_list, mask
+    else:
+        return dst, adjust_joint_list, None
+
+
+def keypoint_random_resize_shortestedge(
+        image, annos, mask=None, min_size=(368, 368), zoom_range=(0.8, 1.2),
+        pad_val=(0, 0, np.random.uniform(0.0, 1.0))
+):
+    """Randomly resize an image and corresponding keypoints based on shorter edgeself.
+    If the resized image is smaller than `min_size`, uses padding to make shape matchs `min_size`.
+    The height and width of image will be changed together, the scale would not be changed.
+
+    Parameters
+    -----------
+    image : 3 channel image
+        The given image for augmentation.
+    annos : list of list of floats
+        The keypoints annotation of people.
+    mask : single channel image or None
+        The mask if available.
+    min_size : tuple of two int
+        The minimum size of height and width.
+    zoom_range : tuple of two floats
+        The minimum and maximum factor to zoom in or out, e.g (0.5, 1) means zoom out 1~2 times.
+    pad_val : int/float, or tuple of int or random function
+        The three padding values for RGB channels respectively.
+
+    Returns
+    ----------
+    preprocessed image, annos, mask
+
+    """
+
+    _target_height = min_size[0]
+    _target_width = min_size[1]
+
+    if len(np.shape(image)) == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+    height, width, _ = np.shape(image)
+
+    ratio_w = _target_width / width
+    ratio_h = _target_height / height
+    ratio = min(ratio_w, ratio_h)
+    target_size = int(min(width * ratio + 0.5, height * ratio + 0.5))
+    random_target = np.random.uniform(zoom_range[0], zoom_range[1])
+    target_size = int(target_size * random_target)
+
+    # target_size = int(min(_network_w, _network_h) * random.uniform(0.7, 1.5))
+
+    def pose_resize_shortestedge(image, annos, mask, target_size):
+        """ """
+        # _target_height = 368
+        # _target_width = 368
+        # img = image
+        height, width, _ = np.shape(image)
+
+        # adjust image
+        scale = target_size / min(height, width)
+        if height < width:
+            newh, neww = target_size, int(scale * width + 0.5)
+        else:
+            newh, neww = int(scale * height + 0.5), target_size
+
+        dst = cv2.resize(image, (neww, newh), interpolation=cv2.INTER_AREA)
+        mask = cv2.resize(mask, (neww, newh), interpolation=cv2.INTER_AREA)
+        pw = ph = 0
+        if neww < _target_width or newh < _target_height:
+            pw = max(0, (_target_width - neww) // 2)
+            ph = max(0, (_target_height - newh) // 2)
+            mw = (_target_width - neww) % 2
+            mh = (_target_height - newh) % 2
+            # color = np.random.uniform(0.0, 1.0)
+            dst = cv2.copyMakeBorder(dst, ph, ph + mh, pw, pw + mw, cv2.BORDER_CONSTANT, value=pad_val)  #(0, 0, color))
+            if mask is not None:
+                mask = cv2.copyMakeBorder(mask, ph, ph + mh, pw, pw + mw, cv2.BORDER_CONSTANT, value=1)
+        # adjust meta data
+        adjust_joint_list = []
+        for joint in annos:  # TODO : speed up with affine transform
+            adjust_joint = []
+            for point in joint:
+                if point[0] < -100 or point[1] < -100:
+                    adjust_joint.append((-1000, -1000))
+                    continue
+                # if point[0] <= 0 or point[1] <= 0 or int(point[0]*scale+0.5) > neww or int(point[1]*scale+0.5) > newh:
+                #     adjust_joint.append((-1, -1))
+                #     continue
+                adjust_joint.append((int(point[0] * scale + 0.5) + pw, int(point[1] * scale + 0.5) + ph))
+            adjust_joint_list.append(adjust_joint)
+        if mask is not None:
+            return dst, adjust_joint_list, mask
+        else:
+            return dst, adjust_joint_list, None
+
+    return pose_resize_shortestedge(image, annos, mask, target_size)

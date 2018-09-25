@@ -1,11 +1,12 @@
+#! /usr/bin/python
 # -*- coding: utf-8 -*-
 
 import tensorflow as tf
 
 from tensorlayer.layers.core import Layer
-from tensorlayer.layers.core import flatten_reshape
+from tensorlayer.layers.utils import flatten_reshape
 
-from tensorlayer import tl_logging as logging
+from tensorlayer import logging
 
 from tensorlayer.decorators import deprecated_alias
 
@@ -31,10 +32,12 @@ class FlattenLayer(Layer):
 
     Examples
     --------
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> x = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
     >>> net = tl.layers.InputLayer(x, name='input')
     >>> net = tl.layers.FlattenLayer(net, name='flatten')
-    ... [?, 784]
+    [?, 784]
 
     """
 
@@ -42,13 +45,14 @@ class FlattenLayer(Layer):
     def __init__(self, prev_layer, name='flatten'):
         super(FlattenLayer, self).__init__(prev_layer=prev_layer, name=name)
 
-        self.inputs = prev_layer.outputs
-
-        self.outputs = flatten_reshape(self.inputs, name=name)
-        self.n_units = int(self.outputs.get_shape()[-1])
-        self.all_layers.append(self.outputs)
+        _out = flatten_reshape(self.inputs, name=name)
+        self.n_units = int(_out.get_shape()[-1])
 
         logging.info("FlattenLayer %s: %d" % (self.name, self.n_units))
+
+        self.outputs = _out
+
+        self._add_layers(self.outputs)
 
 
 class ReshapeLayer(Layer):
@@ -65,11 +69,13 @@ class ReshapeLayer(Layer):
 
     Examples
     --------
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> x = tf.placeholder(tf.float32, shape=(None, 784))
     >>> net = tl.layers.InputLayer(x, name='input')
     >>> net = tl.layers.ReshapeLayer(net, [-1, 28, 28, 1], name='reshape')
     >>> print(net.outputs)
-    ... (?, 28, 28, 1)
+    (?, 28, 28, 1)
 
     """
 
@@ -77,13 +83,11 @@ class ReshapeLayer(Layer):
     def __init__(self, prev_layer, shape, name='reshape'):
         super(ReshapeLayer, self).__init__(prev_layer=prev_layer, name=name)
 
-        self.inputs = prev_layer.outputs
-
         if not shape:
             raise ValueError("Shape list can not be empty")
 
         self.outputs = tf.reshape(self.inputs, shape=shape, name=name)
-        self.all_layers.append(self.outputs)
+        self._add_layers(self.outputs)
 
         logging.info("ReshapeLayer %s: %s" % (self.name, self.outputs.get_shape()))
 
@@ -104,24 +108,24 @@ class TransposeLayer(Layer):
 
     Examples
     ----------
+    >>> import tensorflow as tf
+    >>> import tensorlayer as tl
     >>> x = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
     >>> net = tl.layers.InputLayer(x, name='input')
     >>> net = tl.layers.TransposeLayer(net, perm=[0, 1, 3, 2], name='trans')
-    ... [None, 28, 1, 28]
+    [None, 28, 1, 28]
 
     """
 
     @deprecated_alias(layer='prev_layer', end_support_version=1.9)  # TODO remove this line for the 1.9 release
     def __init__(self, prev_layer, perm, name='transpose'):
 
-        super(TransposeLayer, self).__init__(prev_layer=prev_layer, name=name)
-
-        logging.info("TransposeLayer  %s: perm:%s" % (name, perm))
-
-        self.inputs = prev_layer.outputs
-
         if perm is None:
             raise AssertionError("The `perm` argument cannot be None")
 
+        super(TransposeLayer, self).__init__(prev_layer=prev_layer, name=name)
+
+        logging.info("TransposeLayer  %s: perm: %s" % (self.name, perm))
+
         self.outputs = tf.transpose(self.inputs, perm=perm, name=name)
-        self.all_layers.append(self.outputs)
+        self._add_layers(self.outputs)

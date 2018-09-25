@@ -1,4 +1,6 @@
-""" This module provides lazy import functionality to improve the import
+#! /usr/bin/python
+# -*- coding: utf-8 -*-
+"""This module provides lazy import functionality to improve the import
 performance of nitime. For example, some parts of nitime leverage and import
 matplotlib, which is quite a big package, yet most of the nitime code does not
 depend on matplotlib. By lazily-loading a module, we defer the overhead of
@@ -15,6 +17,7 @@ with the *exception* of reload() - reloading a :class:`LazyImport` raises an
 Commonly used nitime lazy imports are also defined in :mod:`nitime.lazy`, so
 they can be reused throughout nitime.
 """
+import os
 import sys
 import types
 
@@ -74,7 +77,7 @@ class LazyImport(types.ModuleType):
         return "<module '%s' will be lazily loaded>" % object.__getattribute__(self, '__name__')
 
 
-if 'sphinx' in sys.modules:
+if 'READTHEDOCS' in os.environ:
     lazy_doc = """
                WARNING: To get Sphinx documentation to build we disable
                LazyImports, which makes Sphinx incorrectly report this

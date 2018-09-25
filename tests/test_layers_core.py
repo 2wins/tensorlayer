@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorlayer as tl
 
+from tests.utils import CustomTestCase
 
-class Core_Helpers_Test(unittest.TestCase):
+
+class Core_Helpers_Test(CustomTestCase):
 
     def test_LayersConfig(self):
         with self.assertRaises(TypeError):
@@ -16,7 +22,7 @@ class Core_Helpers_Test(unittest.TestCase):
         self.assertIsInstance(tl.layers.LayersConfig.set_keep, dict)
 
 
-class Layer_Core_Test(unittest.TestCase):
+class Layer_Core_Test(CustomTestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -144,19 +150,33 @@ class Layer_Core_Test(unittest.TestCase):
         cls.net8_params = net8.all_params
         cls.net8_n_params = net8.count_params()
 
+        # ============== QuanDenseLayer ==============
+
+        x9 = tf.placeholder(tf.float32, shape=(None, 30))
+        net9 = tl.layers.InputLayer(x9, name='input')
+        net9 = tl.layers.QuanDenseLayer(net9, n_units=10, act=tf.nn.relu, name='quandense')
+
+        net9.print_layers()
+        net9.print_params(False)
+
+        cls.net9_shape = net9.outputs.get_shape().as_list()
+        cls.net9_layers = net9.all_layers
+        cls.net9_params = net9.all_params
+        cls.net9_n_params = net9.count_params()
+
     @classmethod
     def tearDownClass(cls):
         tf.reset_default_graph()
 
     def test_net1(self):
         self.assertEqual(self.net1_shape[-1], 10)
-        self.assertEqual(len(self.net1_layers), 1)
+        self.assertEqual(len(self.net1_layers), 2)
         self.assertEqual(len(self.net1_params), 2)
         self.assertEqual(self.net1_n_params, 310)
 
     def test_net2(self):
         self.assertEqual(self.net2_shape[-1], 8)
-        self.assertEqual(len(self.net2_layers), 0)
+        self.assertEqual(len(self.net2_layers), 1)
         self.assertEqual(len(self.net2_params), 0)
         self.assertEqual(self.net2_n_params, 0)
 
@@ -180,21 +200,27 @@ class Layer_Core_Test(unittest.TestCase):
 
     def test_net6(self):
         self.assertEqual(self.net6_shape[-1], 784)
-        self.assertEqual(len(self.net6_layers), 2)
+        self.assertEqual(len(self.net6_layers), 3)
         self.assertEqual(len(self.net6_params), 4)
         self.assertEqual(self.net6_n_params, 308308)
 
     def test_net7(self):
         self.assertEqual(self.net7_shape, [64, 100])
-        self.assertEqual(len(self.net7_layers), 2)
+        self.assertEqual(len(self.net7_layers), 3)
         self.assertEqual(len(self.net7_params), 2)
         self.assertEqual(self.net7_n_params, 78500)
 
     def test_net8(self):
         self.assertEqual(self.net8_shape, [64, 100])
-        self.assertEqual(len(self.net8_layers), 2)
+        self.assertEqual(len(self.net8_layers), 3)
         self.assertEqual(len(self.net8_params), 4)
         self.assertEqual(self.net8_n_params, 88600)
+
+    def test_net9(self):
+        self.assertEqual(self.net9_shape[-1], 10)
+        self.assertEqual(len(self.net9_layers), 2)
+        self.assertEqual(len(self.net9_params), 2)
+        self.assertEqual(self.net9_n_params, 310)
 
 
 if __name__ == '__main__':

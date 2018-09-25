@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 # import tensorlayer as tl
@@ -28,7 +32,7 @@ def model(x, is_train=True, reuse=False):
     return n
 
 
-class Layer_Normalization_Test(unittest.TestCase):
+class Layer_Normalization_Test(CustomTestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -51,6 +55,8 @@ class Layer_Normalization_Test(unittest.TestCase):
         cls.data["train_network"]["params"] = net_train.all_params
 
         cls.data["train_network"]["n_params"] = net_train.count_params()
+
+        print(net_train.count_params())
 
     @classmethod
     def tearDownClass(cls):

@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
+import os
 import unittest
 
-try:
-    from tests.unittests_helper import CustomTestCase
-except ImportError:
-    from unittests_helper import CustomTestCase
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import tensorlayer as tl
+
+from tests.utils import CustomTestCase
 
 
 def model(x, is_train, reuse):
@@ -23,7 +24,7 @@ def model(x, is_train, reuse):
         # nt = Conv2d(nin, 16, (3, 3), (2, 2), act=tf.nn.relu, padding='SAME', name='tc1')
         # nt = Conv2d(nt, 8, (3, 3), (2, 2), act=tf.nn.relu, padding='SAME', name='tc2')
         ## 2. Spatial transformer module (sampler)
-        n = tl.layers.SpatialTransformer2dAffineLayer(nin, theta_layer=nt, out_size=[40, 40], name='spatial')
+        n = tl.layers.SpatialTransformer2dAffineLayer(nin, theta_layer=nt, out_size=(40, 40), name='spatial')
         s = n
         ## 3. Classifier
         n = tl.layers.Conv2d(
@@ -68,7 +69,7 @@ class Layer_Spatial_Transformer_Test(CustomTestCase):
         self.assertEqual(self.s_shape[1:], [40, 40, 1])
 
     def test_net_layers(self):
-        self.assertEqual(len(self.net_layers), 9)
+        self.assertEqual(len(self.net_layers), 10)
 
     def test_net_params(self):
         self.assertEqual(len(self.net_params), 12)
