@@ -7,6 +7,7 @@ from tensorflow.python.training import moving_averages
 from tensorlayer.layers.core import Layer
 from tensorlayer.layers.core import LayersConfig
 from tensorlayer.layers.core import TF_GRAPHKEYS_VARIABLES
+from tensorlayer.layers.utils import get_collection_trainable
 
 from tensorlayer import logging
 
@@ -315,111 +316,65 @@ class GroupNormLayer(Layer):
         The previous layer.
     act : activation function
         The activation function of this layer.
-    others : _
-        `tf.contrib.layers.group_norm <https://www.tensorflow.org/api_docs/python/tf/contrib/layers/group_norm>`__.
+    epsilon : float
+        Eplison.
+    name : str
+        A unique layer name
 
     """
 
     @deprecated_alias(layer='prev_layer', end_support_version=1.9)  # TODO remove this line for the 1.9 release
-    def __init__(
-            self, prev_layer, groups=32, epsilon=1e-06, act=None, name='groupnorm'
-    ):
+    def __init__(self, prev_layer, groups=32, epsilon=1e-06, act=None, data_format='channels_last', name='groupnorm'):
         super(GroupNormLayer, self).__init__(prev_layer=prev_layer, act=act, name=name)
 
         logging.info(
             "GroupNormLayer %s: act: %s" % (self.name, self.act.__name__ if self.act is not None else 'No Activation')
         )
 
-        channels = self.inputs.get_shape().as_list()[-1]
+        shape = self.inputs.get_shape().as_list()
+        if len(shape) != 4:
+            raise Exception("GroupNormLayer only supports 2D images.")
+
+        if data_format == 'channels_last':
+            channels = shape[-1]
+            int_shape = tf.concat(
+                [tf.shape(self.inputs)[0:3],
+                 tf.convert_to_tensor([groups, channels // groups])], axis=0
+            )
+        elif data_format == 'channels_first':
+            channels = shape[1]
+            int_shape = tf.concat(
+                [
+                    tf.shape(self.inputs)[0:1],
+                    tf.convert_to_tensor([groups, channels // groups]),
+                    tf.shape(self.inputs)[2:4]
+                ], axis=0
+            )
+        else:
+            raise ValueError("data_format must be 'channels_last' or 'channels_first'.")
+
         if groups > channels:
             raise ValueError('Invalid groups %d for %d channels.' % (groups, channels))
         if channels % groups != 0:
             raise ValueError('%d channels is not commensurate with %d groups.' % (channels, groups))
 
-        with tf.variable_scope(name) as vs:
-            int_shape = tf.concat([tf.shape(self.inputs)[0:3],
-                                   tf.convert_to_tensor([groups,
-                                                         channels // groups])],
-                                  axis=0)
-
+        with tf.variable_scope(name):
             x = tf.reshape(self.inputs, int_shape)
-            mean, var = tf.nn.moments(x, [1, 2, 4], keep_dims=True)
+            if data_format == 'channels_last':
+                mean, var = tf.nn.moments(x, [1, 2, 4], keep_dims=True)
+                gamma = tf.get_variable('gamma', channels, initializer=tf.ones_initializer())
+                beta = tf.get_variable('beta', channels, initializer=tf.zeros_initializer())
+            else:
+                mean, var = tf.nn.moments(x, [2, 3, 4], keep_dims=True)
+                gamma = tf.get_variable('gamma', [1, channels, 1, 1], initializer=tf.ones_initializer())
+                beta = tf.get_variable('beta', [1, channels, 1, 1], initializer=tf.zeros_initializer())
+
             x = (x - mean) / tf.sqrt(var + epsilon)
 
-            gamma = tf.get_variable('gamma', [channels, ], initializer=tf.ones_initializer())
-            beta = tf.get_variable('beta', [channels, ], initializer=tf.zeros_initializer())
-
             self.outputs = tf.reshape(x, tf.shape(self.inputs)) * gamma + beta
+            self.outputs = self._apply_activation(self.outputs)
 
-            variables = tf.get_collection(TF_GRAPHKEYS_VARIABLES, scope=vs.name)
-
-        self._add_layers(self.outputs)
-        self._add_params(variables)
-
-
-class SwitchNormLayer(Layer):
-    """
-    The :class:`SwitchNormLayer` is a switchable normalization.
-
-    Parameters
-    ----------
-    prev_layer : :class:`Layer`
-        The previous layer.
-    act : activation function
-        The activation function of this layer.
-    epsilon : float
-        Eplison.
-    beta_init : initializer or None
-        The initializer for initializing beta, if None, skip beta.
-        Usually you should not skip beta unless you know what happened.
-    gamma_init : initializer or None
-        The initializer for initializing gamma, if None, skip gamma.
-        When the batch normalization layer is use instead of 'biases', or the next layer is linear, this can be
-        disabled since the scaling can be done by the next layer. see `Inception-ResNet-v2 <https://github.com/tensorflow/models/blob/master/research/slim/nets/inception_resnet_v2.py>`__
-    name : str
-        A unique layer name.
-
-    References
-    ----------
-    - `Differentiable Learning-to-Normalize via Switchable Normalization <https://arxiv.org/abs/1806.10779>`__
-    - `Zhihu (CN) <https://zhuanlan.zhihu.com/p/39296570?utm_source=wechat_session&utm_medium=social&utm_oi=984862267107651584>`__
-
-    """
-
-    @deprecated_alias(layer='prev_layer', end_support_version=1.9)  # TODO remove this line for the 1.9 release
-    def __init__(
-            self,
-            prev_layer,
-            act=None,
-            epsilon=1e-5,
-            beta_init=tf.constant_initializer(0.0),
-            gamma_init=tf.constant_initializer(1.0),
-            moving_mean_init=tf.zeros_initializer(),
-            name='switchnorm_layer',
-    ):
-        super(SwitchNormLayer, self).__init__(prev_layer=prev_layer, act=act, name=name)
-
-        logging.info(
-            "SwitchNormLayer %s: epsilon: %f act: %s" %
-            (self.name, epsilon, self.act.__name__ if self.act is not None else 'No Activation')
-        )
-
-        with tf.variable_scope(name) as vs:
-            self.outputs = tf.contrib.layers.layer_norm(
-                self.inputs,
-                center=center,
-                scale=scale,
-                activation_fn=self.act,
-                reuse=reuse,
-                variables_collections=variables_collections,
-                outputs_collections=outputs_collections,
-                trainable=trainable,
-                begin_norm_axis=begin_norm_axis,
-                begin_params_axis=begin_params_axis,
-                scope='var',
-            )
-
-            variables = tf.get_collection(TF_GRAPHKEYS_VARIABLES, scope=vs.name)
+        variables = get_collection_trainable(self.name)
 
         self._add_layers(self.outputs)
         self._add_params(variables)

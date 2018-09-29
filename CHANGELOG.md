@@ -70,6 +70,8 @@ To release a new version, please update the changelog as followed:
 ## [Unreleased]
 
 ### Added
+- Layer:
+  - Release `GroupNormLayer` (PR #850)
 
 ### Changed
 
@@ -77,6 +79,8 @@ To release a new version, please update the changelog as followed:
 - yapf>=0.22,<0.24 => yapf>=0.22,<0.25 (PR #829)
 - sphinx>=1.7,<1.8 => sphinx>=1.7,<1.9 (PR #842)
 - matplotlib>=2.2,<2.3 => matplotlib>=2.2,<3.1 (PR #845)
+- scikit-learn>=0.19,<0.20 => scikit-learn>=0.19,<0.21 (PR #851)
+- tensorflow>=1.6,<1.11 => tensorflow>=1.6,<1.12 (PR #853)
 
 ### Deprecated
 
@@ -87,6 +91,8 @@ To release a new version, please update the changelog as followed:
 ### Security
 
 ### Contributors
+- @2wins: #850
+- @DEKHTIARJonathan: #853
 
 ## [1.10.1] - 2018-09-07
 
